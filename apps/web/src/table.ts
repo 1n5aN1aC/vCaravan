@@ -40,6 +40,8 @@ const RELISTEN_MS = 3_000;
 /** Long enough for the last `ended` message to cross before the link drops. */
 const FLUSH_MS = 1_000;
 const SWEEP_MS = 5_000;
+/** The same patience a guest has when dialling a table (see `peer.ts`). */
+export const LISTEN_TIMEOUT_MS = 15_000;
 
 /** The broker id a table registers under. Prefixed so it cannot collide with
     another app sharing the public broker. */
@@ -61,6 +63,39 @@ const GUEST_MESSAGES = new Set<ClientMessage['t']>([
   'leave',
   'ping',
 ]);
+
+/**
+ * Registers on the broker, but gives up if it never answers — otherwise a
+ * broker that accepted the socket and then went quiet would leave the host
+ * looking at "Opening your table…" forever. A registration that does turn up
+ * after the deadline is let go at once, so the code is not left held by a
+ * table nobody is running.
+ */
+function listenWithin(
+  network: PeerNetwork,
+  id: string,
+  onChannel: (channel: Channel) => void,
+): Promise<Listener> {
+  return new Promise((resolve, reject) => {
+    let late = false;
+    const timer = window.setTimeout(() => {
+      late = true;
+      reject(new PeerError('network', 'the PeerJS broker did not answer'));
+    }, LISTEN_TIMEOUT_MS);
+    network.listen(id, onChannel).then(
+      (listener) => {
+        if (late) return listener.close();
+        window.clearTimeout(timer);
+        resolve(listener);
+      },
+      (error: unknown) => {
+        if (late) return;
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 interface Options {
   network: PeerNetwork | null;
@@ -114,7 +149,7 @@ export class HostTable {
     if (network && !table.bot) {
       for (let attempt = 1; ; attempt++) {
         try {
-          listener = await network.listen(peerIdFor(code), (c) => host.accept(c));
+          listener = await listenWithin(network, peerIdFor(code), (c) => host.accept(c));
           break;
         } catch (error) {
           if (!(error instanceof PeerError && error.kind === 'taken') || attempt >= CODE_ATTEMPTS) {
@@ -241,7 +276,7 @@ export class HostTable {
     const network = this.options.network!;
     while (!this.closed) {
       try {
-        const listener = await network.listen(peerIdFor(this.code), (c) => this.accept(c));
+        const listener = await listenWithin(network, peerIdFor(this.code), (c) => this.accept(c));
         if (this.closed) return listener.close();
         return this.attach(listener);
       } catch {

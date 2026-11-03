@@ -466,7 +466,10 @@ function Status({ state }: { state: ReturnType<CaravanClient['getSnapshot']> }) 
 
   const [label, body] = ((): [string, ReactElement] => {
     if (state.status === 'ended') {
-      return ['Ended', <span className="status warn">{state.endedReason}</span>];
+      return [
+        'Ended',
+        <span className="status warn">{endedText(state.endedReason, state.hosting)}</span>,
+      ];
     }
     if (state.status === 'waiting') {
       return ['Waiting', <span className="status">Share the code for an opponent</span>];
@@ -498,6 +501,26 @@ function Status({ state }: { state: ReturnType<CaravanClient['getSnapshot']> }) 
       {body}
     </span>
   );
+}
+
+/**
+ * Why the table ended, in words. The wire carries a short code, and what it
+ * means depends on whose tab it is: a guest only ever hears `opponent-left`
+ * because the host left, and `abandoned` because the host never came back.
+ */
+export function endedText(reason: string | null, hosting: boolean): string {
+  switch (reason) {
+    case 'opponent-left':
+      return hosting ? 'Your opponent left' : 'The host left the table';
+    case 'abandoned':
+      return hosting ? "Your opponent didn't come back" : "The host didn't come back";
+    case 'idle':
+      return `Closed after ${NET.IDLE_SWEEP_MS / 60_000} minutes with no moves`;
+    case 'finished':
+      return 'Match over';
+    default:
+      return 'The table has closed';
+  }
 }
 
 /** Seconds remaining until a deadline, or null when there is none. */

@@ -2,7 +2,7 @@ import { hydrateForClient, type RedactedState } from '@caravan/protocol';
 import { buildDeck, listLegalMoves, type Seat } from '@caravan/rules';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CaravanClient } from '../src/net.js';
-import { peerIdFor } from '../src/table.js';
+import { LISTEN_TIMEOUT_MS, peerIdFor } from '../src/table.js';
 import { MemoryNetwork, MemoryStorage } from './memoryNetwork.js';
 
 /**
@@ -242,6 +242,37 @@ describe('opening a table', () => {
     await host.createRoom(undefined, 'build');
     await settle();
     expect(host.state.seat).toBe(0);
+  });
+
+  it('gives up on a broker that never answers, and lets go of a late answer', async () => {
+    const storage = new MemoryStorage();
+    const broker = slowBroker();
+    const host = tab(storage);
+    const opening = host.createRoom(undefined, 'build');
+
+    vi.advanceTimersByTime(LISTEN_TIMEOUT_MS - 1);
+    await settle();
+    expect(host.state.connectivity).toBe('connecting');
+
+    vi.advanceTimersByTime(1);
+    await opening;
+    expect(host.state).toMatchObject({ connectivity: 'idle', hosting: false, seat: null });
+    expect(host.state.error).toMatch(/did not answer/);
+    expect(storage.length).toBe(0);
+
+    // The broker gets there in the end; the code must not stay held for a
+    // table that was never opened.
+    broker.release();
+    await settle();
+    const id = broker.listen.mock.calls[0]![0] as string;
+    expect(network.has(id)).toBe(false);
+    expect(host.state.seat).toBeNull();
+
+    // And Start works again.
+    broker.listen.mockRestore();
+    await host.createRoom(undefined, 'build');
+    await settle();
+    expect(host.state).toMatchObject({ seat: 0, connectivity: 'open', error: null });
   });
 
   it('lets a Join that has not connected be cancelled', async () => {

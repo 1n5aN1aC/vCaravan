@@ -8,7 +8,7 @@ import {
 } from '@caravan/rules';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from '../src/App.js';
+import { App, endedText } from '../src/App.js';
 import { CaravanClient } from '../src/net.js';
 import { peerIdFor } from '../src/table.js';
 import { MemoryNetwork, MemoryStorage, type MemoryChannel } from './memoryNetwork.js';
@@ -198,6 +198,43 @@ describe('new table options', () => {
     });
     expect(screen.getByText('Create a table')).toBeTruthy();
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The wire says why a table ended in a short code; the screen says it in words,
+ * from the point of view of whoever is reading it.
+ */
+describe('why a table ended', () => {
+  async function ended(reason: string): Promise<void> {
+    const { host } = await joined();
+    act(() => host.deliver({ t: 'seated', code: CODE, seat: 1, token: `${CODE}.1.secret` }));
+    act(() => host.deliver({ t: 'ended', reason } as ServerMessage));
+  }
+
+  it('tells a guest the host left, rather than showing the code', async () => {
+    await ended('opponent-left');
+    expect(screen.getByText('The host left the table')).toBeTruthy();
+    expect(screen.queryByText('opponent-left')).toBeNull();
+  });
+
+  it('tells a guest the host never came back', async () => {
+    await ended('abandoned');
+    expect(screen.getByText("The host didn't come back")).toBeTruthy();
+  });
+
+  it('says how long a table sat idle before it closed', async () => {
+    await ended('idle');
+    expect(screen.getByText('Closed after 10 minutes with no moves')).toBeTruthy();
+  });
+
+  it('speaks to the host about its opponent instead', () => {
+    expect(endedText('opponent-left', true)).toBe('Your opponent left');
+    expect(endedText('abandoned', true)).toBe("Your opponent didn't come back");
+  });
+
+  it('never shows a bare code, even one it does not know', () => {
+    expect(endedText('something-new', false)).toBe('The table has closed');
   });
 });
 
