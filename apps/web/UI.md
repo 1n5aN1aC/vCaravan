@@ -235,7 +235,7 @@ chosen on the options screen and applied to both seats:
 
 The mode is a declarative row, not a branch: `copies`, `include`, `buildable`
 and `minSize`. A new mode ("no face cards", "numbers only") is one entry and no
-change here, in `App.tsx`, or on the server.
+change here, in `App.tsx`, or in the host's table.
 
 The second copy of a card carries a `#2` tag on its id (`p0:AS#2`); copy one
 keeps the bare id it always had. That is what lets duplicates exist at all —
@@ -274,7 +274,7 @@ not two" is a legible choice rather than a hunt.
 
 `App.tsx` decides whether to show it: as soon as a seat exists and the match
 hasn't been dealt, gated on `!decksReady[seat]` rather than local component
-state, so a refresh mid-build resumes into the right screen — the server's
+state, so a refresh mid-build resumes into the right screen — the host's
 bookkeeping is the source of truth for "have I already sent mine", the same way
 `RedactedState` is the source of truth for everything else here. It appears the
 moment a seat is granted, not once an opponent joins; there is no reason to make
@@ -282,7 +282,7 @@ the host wait to start trimming.
 
 A mode that isn't `buildable` never shows the screen: `App.tsx` submits the
 whole pool itself, gated on that same `decksReady`, so the player goes straight
-to the table and a refresh doesn't resend a deck the server already has.
+to the table and a refresh doesn't resend a deck the host already has.
 
 Removals are remembered in `localStorage` by card key with the owner prefix
 stripped but the `#n` tag kept, so the two copies are remembered separately, and
@@ -290,7 +290,7 @@ a key belonging to another mode's pool is simply filtered out on load.
 
 Validity is the rules engine's call (`checkDeckSelection`), applied identically
 on both ends — the client's floor enforcement is advisory UI, exactly like
-legality highlighting, and the server re-checks a submitted deck independently
+legality highlighting, and the host's table re-checks a submitted deck independently
 before ever dealing from it.
 
 ## Rematch
@@ -299,7 +299,7 @@ The offer sits on the result overlay, which is otherwise inert (`pointer-events:
 none`, so the final board still reads through it) — the button takes the pointer
 back for itself and nothing else does.
 
-It is an offer, not a command: the server holds `rematch[seat]` per side and only
+It is an offer, not a command: the host's table holds `rematch[seat]` per side and only
 redeals once both are set, so the button's own label is the whole state machine
 ("Rematch" → "Waiting for your opponent…", or "Accept rematch" when theirs
 landed first). A solo table redeals on the host's click alone; the AI is always
@@ -310,7 +310,7 @@ only the match: fresh seed, no moves, both decks cleared, so it lands back in th
 deck builder rather than skipping it. The client notices by the `room` frame
 alone: status back to `building` with a match still on screen means the finished
 board is cleared. Note that a room whose match is decided is **not** reported as
-`ended` — rooms report `ended` only when the server has actually let them go, and
+`ended` — rooms report `ended` only when the host's table has actually let them go, and
 `frozen` for a decided match comes from `match.result` instead.
 
 ## Sound
@@ -324,11 +324,12 @@ the mute button in the panel hides itself when nothing is bundled.
 both seats:
 
 - **The mover hears `predict`.** `Board`'s `fire` calls it synchronously, before
-  `onMove` even reaches the socket. It runs the move through the same shared
+  `onMove` even reaches the link to the table. It runs the move through the same shared
   engine used for legality (`applyMove` on `hydrateForClient(view)`) and plays
   off *that* result. On a laggy connection this is the difference between the
   sound landing with your click and it landing hundreds of milliseconds later
-  with the server's echo — which is what it replaced.
+  with the host's echo — which is what it replaced. (A host's own moves come back
+  almost instantly over its local link; a guest's cross the network both ways.)
 - **Everyone hears the snapshot diff.** The effect that watches `view` still
   diffs consecutive snapshots, and it is the only source for the opponent's
   moves — there is nothing to predict from for a move nobody here has chosen.

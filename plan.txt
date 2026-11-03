@@ -30,15 +30,27 @@ play a complete, correct match in their browsers. Nothing else.
 
 
 
+*Since v1:* there is no server any more. The game is a static site; the player who
+
+creates a table runs it in their own tab, and the other player connects to that tab
+
+over WebRTC, found through PeerJS's public broker. The sections below describe the
+
+current design; where v1 did it differently, it says so.
+
+
+
 **Deliberately out of scope for v1:** accounts,
 
 matchmaking, ranking, chat/emotes, spectators, rematch, animation, persistence
 
 across restarts, public hosting. Each is discussed under "Designed-for extensions."
 
-Deck building and a basic AI opponent have since shipped and are no longer on
+Deck building, a basic AI opponent, rematch, animation, surviving a reload, and
 
-this list — see the README.
+public hosting (any static host) have since shipped and are no longer on this
+
+list — see the README.
 
 
 
@@ -233,13 +245,19 @@ decks are never touched. Board-wide reach is intentional — it's what makes Jok
 **pnpm monorepo, TypeScript everywhere.**
 
 packages/rules/     Pure rules engine. Zero I/O. No framework. Injected seeded PRNG.
-packages/protocol/  Wire message types + Zod schemas. Shared by server and web.
-apps/server/        Node + `ws`. Authoritative. Serves built client on the same origin.
-apps/web/           React + Vite. Thin renderer + local legality highlighting.
+packages/protocol/  Wire message types + Zod schemas. Shared by host and guest.
+packages/host/      The table: rooms, seats, tokens, the AI. Pure TS, runs in the host's tab.
+apps/web/           React + Vite. Renderer, local legality highlighting, PeerJS links.
+
+(v1 had `apps/server/` — Node + `ws`, serving the built client on the same origin —
+
+in place of `packages/host`. Its hub never knew what a socket was, which is why it
+
+could move into the browser unchanged in substance.)
 
 `packages/rules` is the centerpiece and gets built and trusted **first**. It is imported
 
-by the server as the authority, and by the client purely to compute legal move
+by the host's table as the authority, and by both tabs purely to compute legal move
 
 highlighting without a round-trip. Rules logic is written and tested exactly once.
 
@@ -247,23 +265,47 @@ highlighting without a round-trip. Rules logic is written and tested exactly onc
 
 ### Authority
 
-Fully **server-authoritative**. The server owns deck order, both hands, and all state.
+Fully **host-authoritative**. The table in the host's tab owns deck order, both hands,
 
-Clients send *intents* (`{play, cardId, target}`) and receive only what that seat may see.
+and all state. Seats send *intents* (`{play, cardId, target}`) and receive only what that
 
-Client-side rules are advisory UI only; the server independently re-validates every move
+seat may see — the host's own seat included, over a local link that goes through the
 
-and a rejected intent triggers a snapshot resync.
+same path. Client-side rules are advisory UI only; the table independently re-validates
+
+every move and a rejected intent triggers a snapshot resync.
+
+
+
+The trade made by dropping the server: the host's tab holds the guest's hand, both deck
+
+orders and the seed, readable by anyone who opens the dev tools there. Redaction still
+
+keeps all of it off the wire; it is the host that is trusted. (In v1 the server was a
+
+neutral third party.)
 
 
 
 ### Transport
 
-Plain WebSocket (`ws`) with a hand-rolled discriminated-union protocol (~12 message types)
+A WebRTC data channel per guest, set up through PeerJS: the host registers on PeerJS's
 
-validated by Zod at both ends. Shared TS types mean the compiler catches protocol drift.
+public broker under an id made from the table's code, and a guest dials that id. The
 
-Heartbeat + reconnect hand-written (~50 lines).
+broker only introduces the two tabs; PeerJS's default STUN and free TURN relays get them
+
+connected. Messages are the same hand-rolled discriminated-union protocol (~12 message
+
+types), JSON over the channel, validated by Zod at the host. Shared TS types mean the
+
+compiler catches protocol drift. The guest pings every 5s and either end treats 20s of
+
+silence as a dropped link. A solo table has no network at all.
+
+
+
+(v1 used a plain WebSocket (`ws`) to the server, with the same protocol.)
 
 
 
@@ -289,19 +331,31 @@ only path by which state reaches the wire. Nothing else may serialize a match.
 
 ### Match lifecycle
 
-- **Store:** `Map<roomCode, Match>` in one Node process, behind a `MatchStore` interface
+- **Store:** the host's one room, in memory in its tab, saved to `sessionStorage` after
 
-  so Redis is a one-file swap later. Server restart kills in-flight matches — accepted.
+  every change. A reload of the host's tab puts it back and re-registers the code; closing
 
-- **Rooms:** host creates → 4-letter code → second player joins → match begins. Third
+  the tab ends the table once the guest's grace window runs out. (v1: `Map<roomCode, Match>`
 
-  joiner rejected.
+  in one Node process, lost on restart.)
 
-- **Seats:** on join, server issues an **HMAC-signed seat token** stored in `localStorage`.
+- **Rooms:** host creates → **6-letter code**, claimed on the broker before the room exists
 
-  Reconnecting with it restores the seat and re-sends a full snapshot. Tab refresh is a
+  (the code is the address a guest dials) → second player joins → deck building → match
 
-  non-event.
+  begins. Third joiner rejected. Six letters, not v1's four, because the code is now an
+
+  address on a public broker and has to be hard to guess.
+
+- **Seats:** on join, the table issues a **seat token** — a random per-seat secret it keeps
+
+  with the room, so it survives the host's reload. Each tab keeps its token in
+
+  `sessionStorage`, so two tabs of one browser can play each other. Reconnecting with it
+
+  restores the seat and re-sends a full snapshot. Tab refresh is a non-event. (v1: an
+
+  HMAC-signed token in `localStorage`.)
 
 - **Disconnect:** opponent sees "Opponent reconnecting…" with a **90s countdown**. After
 
@@ -313,9 +367,11 @@ only path by which state reaches the wire. Nothing else may serialize a match.
 
 - **Idle sweep:** rooms with no activity for **10 minutes** are garbage-collected.
 
-- **Game over:** result screen → both players return to the landing page. No rematch;
+- **Game over:** result screen, which offers a rematch on the same table — same code,
 
-  the room is destroyed.
+  seats and tokens, fresh deal. Leaving returns to the landing page; the host leaving
+
+  ends the table for the guest too.
 
 
 
@@ -447,7 +503,9 @@ Each phase is independently verifiable.
 
    `MatchStore`, room codes, seat tokens, `redactFor`, move validation, snapshot broadcast,
 
-   reconnect grace, idle sweep, replay recording.
+   reconnect grace, idle sweep, replay recording. *(Later moved into the host's tab as
+
+   `packages/host`, with PeerJS in place of `ws` — see Architecture.)*
 
 5. **Web client** — landing page (create/join), board rendering, click-to-select
 
@@ -455,7 +513,7 @@ Each phase is independently verifiable.
 
    status, game-over screen.
 
-6. **End-to-end play** — two browsers on LAN, full match. Fix what surfaces; every bug
+6. **End-to-end play** — two browsers on LAN (now: anywhere), full match. Fix what surfaces; every bug
 
    becomes a fixture.
 
@@ -473,25 +531,31 @@ Each phase is independently verifiable.
 
 - Fixture coverage explicitly asserted for each edge case listed in "Correctness strategy".
 
-- Server smoke: start server, create a room, join from a second client, play a scripted
+- Two-tab smoke (`apps/web/test/table.test.ts`): a host and a guest client over an
 
-  move list, assert the expected winner.
+  in-memory stand-in for PeerJS play a complete match to a result both agree on. Only the
 
-- Manual end-to-end: run the server, open two browser tabs (and a second machine on LAN),
+  broker and WebRTC are faked.
 
-  play a complete match to a decided result.
+- Manual end-to-end: `pnpm dev`, open two browser tabs (and a second machine anywhere),
 
-- Reconnect: mid-match, kill one tab's network / refresh it, confirm the seat restores
+  play a complete match to a decided result over the real broker.
 
-  from `localStorage` and the board is intact. Confirm the 90s expiry ends the match cleanly.
+- Reconnect: mid-match, refresh either tab, confirm the seat restores from
 
-- Rejection path: send a hand-crafted illegal intent over the socket and confirm the
+  `sessionStorage` and the board is intact — for the host, that the table comes back and
 
-  server rejects it and resyncs rather than applying it.
+  the guest finds it again. Confirm the 90s expiry ends the match cleanly.
 
-- Redaction: inspect raw socket frames and confirm the opponent's hand contents and deck
+- Rejection path: send a hand-crafted illegal intent over a channel and confirm the
 
-  order never appear.
+  host's table rejects it and resyncs rather than applying it; and that a guest cannot
+
+  open a room in the host's tab.
+
+- Redaction: inspect the frames reaching the guest and confirm the host's hand contents
+
+  and deck order never appear.
 
 - Determinism: replay a recorded seed + move list and confirm an identical final state.
 
@@ -515,17 +579,23 @@ The v1 structure deliberately accommodates these without rework:
 
 - **Turn timers** — nullable `turnDeadline` field already in state.
 
-- **Redis / multi-process** — `MatchStore` interface.
+- **A server again** — the hub talks to seats through a two-method `Connection` and
+
+  never knew the transport, so putting it back behind a socket (for a neutral, cheat-proof
+
+  authority, or a lobby) is a wrapper, not a rewrite.
 
 - **Rule variants** — ruleset constants (face-card cap, sell range, hand size, turn cap)
 
   are named config, not literals.
 
-- **Accounts, matchmaking, spectators, rematch** — additive; none require
+- **Accounts, matchmaking, spectators** — additive; none require changing the
 
-  changing the engine or the authority model. The AI opponent, since shipped,
+  engine. Matchmaking and accounts do need something shared to list players, which the
 
-  bore this out: it is a `Connection` in seat 1 and changed neither.
+  public PeerJS broker does not offer. The AI opponent and rematch, since shipped, bore
+
+  this out: the AI is a `Connection` in seat 1 and changed neither.
 
 
 
