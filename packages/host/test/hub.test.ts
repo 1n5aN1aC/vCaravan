@@ -22,6 +22,7 @@ class TestConnection implements Connection {
 let now = 1_000_000;
 let hub: Hub;
 let store: InMemoryMatchStore;
+let tokens: SeatTokens;
 /** The AI's pending move, if one is queued. Nothing else uses the scheduler. */
 let pending: Array<() => void>;
 
@@ -29,13 +30,27 @@ beforeEach(() => {
   now = 1_000_000;
   pending = [];
   store = new InMemoryMatchStore();
-  hub = new Hub(store, new SeatTokens(), () => now, (fn) => {
-    pending.push(fn);
-    return () => {
-      pending = pending.filter((f) => f !== fn);
-    };
-  });
+  tokens = new SeatTokens();
+  hub = new Hub(store, tokens, () => now, schedule);
 });
+
+function schedule(fn: () => void): () => void {
+  pending.push(fn);
+  return () => {
+    pending = pending.filter((f) => f !== fn);
+  };
+}
+
+/** What a host tab does on refresh: a new hub, given back the saved room. */
+function reload(code: string): void {
+  const saved = JSON.parse(JSON.stringify(store.get(code)!));
+  const secrets = tokens.entries();
+  pending = [];
+  store = new InMemoryMatchStore();
+  tokens = new SeatTokens(secrets);
+  hub = new Hub(store, tokens, () => now, schedule);
+  hub.restore(saved);
+}
 
 /** Runs whatever the bot had queued, which typically queues the next one. */
 function flushBot(): boolean {
@@ -74,11 +89,11 @@ function pair(): { host: TestConnection; guest: TestConnection; code: string } {
 }
 
 describe('rooms', () => {
-  it('issues a four-letter code and seats the host', () => {
+  it('issues a six-letter code and seats the host', () => {
     const host = open();
     hub.handle(host, { t: 'create' });
     const seated = host.last('seated')!;
-    expect(seated.code).toMatch(/^[A-Z]{4}$/);
+    expect(seated.code).toMatch(/^[A-Z]{6}$/);
     expect(seated.seat).toBe(0);
     expect(host.last('room')!.status).toBe('waiting');
   });
@@ -109,7 +124,7 @@ describe('rooms', () => {
 
   it('rejects an unknown room code', () => {
     const stray = open();
-    hub.handle(stray, { t: 'join', code: 'ZZZZ' });
+    hub.handle(stray, { t: 'join', code: 'ZZZZZZ' });
     expect(stray.last('error')!.message).toMatch(/no room/);
   });
 });
@@ -348,6 +363,79 @@ describe('reconnect', () => {
   });
 });
 
+/**
+ * What a host tab needs beyond what the old server did: opening under a code it
+ * already claimed on the broker, coming back from a refresh, and taking the
+ * table down with it when the host leaves.
+ */
+describe('browser host', () => {
+  it('opens a room under the code it is handed', () => {
+    const host = open();
+    hub.host(host, { code: 'QWERTY', mode: 'classic' });
+    expect(host.last('seated')).toMatchObject({ code: 'QWERTY', seat: 0 });
+    expect(store.get('QWERTY')!.mode).toBe('classic');
+  });
+
+  it('refuses a code that is already open', () => {
+    hub.host(open(), { code: 'QWERTY' });
+    const second = open();
+    hub.host(second, { code: 'QWERTY' });
+    expect(second.last('error')!.message).toMatch(/already open/);
+  });
+
+  it('puts a saved room back, with both seats reclaimable by token', () => {
+    const { host, guest, code } = pair();
+    reload(code);
+
+    const back = open();
+    hub.handle(back, { t: 'resume', token: host.last('seated')!.token });
+    expect(back.last('seated')).toMatchObject({ code, seat: 0 });
+    expect(back.last('state')).toBeDefined();
+    // The guest has not come back yet, and is given the usual window to.
+    expect(back.last('room')!.present).toEqual([true, false]);
+    expect(back.last('room')!.reconnectDeadline).toBe(now + NET.RECONNECT_GRACE_MS);
+
+    const guestBack = open();
+    hub.handle(guestBack, { t: 'resume', token: guest.last('seated')!.token });
+    expect(guestBack.last('seated')).toMatchObject({ code, seat: 1 });
+  });
+
+  it('re-seats the AI in a restored solo room, and it carries on playing', () => {
+    const host = open();
+    hub.handle(host, { t: 'create', bot: 'easy', mode: 'classic' });
+    const code = host.last('seated')!.code;
+    hub.handle(host, { t: 'deck', keep: buildPool(0, 'classic').map((c) => c.id) });
+    reload(code);
+
+    const room = store.get(code)!;
+    // Only the human seat is waiting on a reconnect; the AI never left.
+    expect(room.disconnectedAt).toEqual([now, null]);
+
+    const back = open();
+    hub.handle(back, { t: 'resume', token: host.last('seated')!.token });
+    if (room.state!.turn === 0) {
+      hub.handle(back, { t: 'move', move: listLegalMoves(room.state!, 0)[0]! });
+    }
+    const played = room.moves.length;
+    expect(flushBot()).toBe(true);
+    expect(store.get(code)!.moves.length).toBe(played + 1);
+  });
+
+  it('ends the table for everyone when the host closes it', () => {
+    const { host, guest, code } = pair();
+    const token = guest.last('seated')!.token;
+    hub.end(code, 'opponent-left');
+    expect(guest.last('ended')!.reason).toBe('opponent-left');
+    expect(host.last('ended')!.reason).toBe('opponent-left');
+    expect(store.get(code)).toBeUndefined();
+
+    // The seat's secret goes with the room.
+    const late = open();
+    hub.handle(late, { t: 'resume', token });
+    expect(late.last('error')!.message).toMatch(/not valid/);
+  });
+});
+
 describe('idle sweep', () => {
   it('collects rooms with no activity', () => {
     const { host, code } = pair();
@@ -365,7 +453,7 @@ describe('protocol validation', () => {
     expect(
       ClientMessage.safeParse({ t: 'move', move: { type: 'play', cardId: 'x' } }).success,
     ).toBe(false);
-    expect(ClientMessage.safeParse({ t: 'join', code: 'ABCD' }).success).toBe(true);
+    expect(ClientMessage.safeParse({ t: 'join', code: 'ABCDEF' }).success).toBe(true);
   });
 });
 

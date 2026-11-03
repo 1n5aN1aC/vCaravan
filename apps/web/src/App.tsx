@@ -5,7 +5,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from 'react';
-import type { Difficulty } from '@caravan/protocol';
+import { NET, type Difficulty } from '@caravan/protocol';
 import {
   buildPool,
   DECK_MODES,
@@ -15,7 +15,7 @@ import {
 } from '@caravan/rules';
 import { Board } from './Board.js';
 import { DeckBuilder } from './DeckBuilder.js';
-import { CaravanClient } from './net.js';
+import { CaravanClient, type Connectivity } from './net.js';
 import { warmAssets } from './preload.js';
 import { sound } from './sound.js';
 import { ambience, music } from './music.js';
@@ -28,8 +28,9 @@ import { ambience, music } from './music.js';
  * rides at the top of the hand column, so the table has the window's full width
  * and height to itself.
  */
-export function App() {
-  const client = useMemo(() => new CaravanClient(), []);
+/** `client` is for tests, which hand in one wired to an in-memory network. */
+export function App({ client: given }: { client?: CaravanClient } = {}) {
+  const client = useMemo(() => given ?? new CaravanClient(), [given]);
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot);
   const [code, setCode] = useState('');
   // The table's options are chosen before the room exists, because the deal
@@ -37,7 +38,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    client.connect();
+    client.start();
     return () => client.dispose();
   }, [client]);
 
@@ -94,7 +95,14 @@ export function App() {
       )}
 
       <span className="spacer" />
-      <span className={`conn conn-${state.connectivity}`}>{state.connectivity}</span>
+      {state.connectivity !== 'idle' && (
+        <span
+          className={`conn conn-${state.connectivity}`}
+          title={CONNECTIVITY_HINTS[state.hosting ? 'host' : 'guest'][state.connectivity]}
+        >
+          {state.connectivity === 'local' ? 'offline' : state.connectivity}
+        </span>
+      )}
       {seated && <button onClick={() => client.leave()}>Leave</button>}
 
       <AudioControls />
@@ -121,7 +129,7 @@ export function App() {
         <TableOptions
           onStart={(bot, mode) => {
             setCreating(false);
-            client.createRoom(bot, mode);
+            void client.createRoom(bot, mode);
           }}
           onBack={() => setCreating(false)}
         />
@@ -141,11 +149,11 @@ export function App() {
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               placeholder="CODE"
-              maxLength={4}
+              maxLength={NET.ROOM_CODE_LENGTH}
               autoFocus
               aria-label="Room code"
             />
-            <button type="submit" disabled={code.trim().length !== 4}>
+            <button type="submit" disabled={code.trim().length !== NET.ROOM_CODE_LENGTH}>
               Join
             </button>
           </form>
@@ -180,6 +188,22 @@ export function App() {
     </main>
   );
 }
+
+/** What the connection badge means, which depends on whose tab the table is in. */
+const CONNECTIVITY_HINTS: Record<'host' | 'guest', Record<Exclude<Connectivity, 'idle'>, string>> = {
+  host: {
+    local: 'This table runs entirely in this tab',
+    connecting: 'Registering this table so an opponent can reach it',
+    open: 'This tab is hosting the table — closing it ends the match',
+    closed: 'Lost the PeerJS broker: new players cannot find this table until it is back',
+  },
+  guest: {
+    local: '',
+    connecting: "Connecting to the host's tab",
+    open: "Connected to the host's tab",
+    closed: "Lost the host's tab — trying to reach it again",
+  },
+};
 
 const DIFFICULTIES: Array<{ value: Difficulty; label: string; blurb: string }> = [
   { value: 'easy', label: 'Easy', blurb: 'Builds its own caravans and leaves yours alone.' },
@@ -435,6 +459,9 @@ function Status({ state }: { state: ReturnType<CaravanClient['getSnapshot']> }) 
     if (state.status === 'building') {
       const ready = state.decksReady.filter(Boolean).length;
       return ['Waiting', <span className="status">{ready}/2 decks ready</span>];
+    }
+    if (!state.hosting && state.connectivity === 'closed') {
+      return ['Waiting', <span className="status warn">Reconnecting to the host…</span>];
     }
     if (countdown !== null) {
       return ['Waiting', <span className="status warn">Reconnecting… {countdown}s</span>];

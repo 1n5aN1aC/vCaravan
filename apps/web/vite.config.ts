@@ -3,6 +3,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
+  // Relative asset URLs, so the build runs from any path on any static host —
+  // GitHub Pages serves a project from a subdirectory.
+  base: './',
   // Keeps production stack traces readable — this is a debugging tool, not a
   // shipping app.
   build: { sourcemap: true },
@@ -10,10 +13,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // reachable from other machines on the LAN
     port: 5173,
-    // In dev the client and server are separate origins; proxy the socket so
-    // the client can always just talk to its own origin.
-    proxy: {
-      '/ws': { target: 'ws://localhost:8787', ws: true },
-    },
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 8787,
   },
 });

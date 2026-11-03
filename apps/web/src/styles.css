@@ -159,6 +159,7 @@ h1 {
 .conn-open { color: #6fd08c; }
 .conn-connecting { color: var(--gold); }
 .conn-closed { color: var(--danger); }
+.conn-local { color: var(--ink-dim); }
 
 button {
   font: inherit;
@@ -186,7 +187,7 @@ input {
   letter-spacing: 0.4em;
   text-align: center;
   text-transform: uppercase;
-  width: 7rem;
+  width: 9.5rem; /* six spaced letters */
   padding: 0.45rem 0.5rem 0.45rem 0.9rem;
   color: var(--ink);
   background: rgba(0, 0, 0, 0.35);

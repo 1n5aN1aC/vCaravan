@@ -371,12 +371,6 @@ one-liner.
 
 ## Known loose ends
 
-- **Two tabs of one browser fight over a seat.** The seat token lives under a
-  single `localStorage` key, which is shared across tabs, so both resume the same
-  token and the server displaces each in turn — the connection flaps every two
-  seconds, forever. Switching to `sessionStorage` scopes it per tab and fixes it;
-  the trade is that closing a tab gives up the seat rather than leaving it
-  reclaimable for the 90s grace window. Not done.
 - **Unverified in a browser:** the attached-face-card overlap, the drag-over
   lift, and the result overlay. Written and type-checked, never looked at.
 - **`plan.txt` still describes the move log** (lines 274, 358, 450), which no

@@ -7,10 +7,11 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "demo": "pnpm --filter @caravan/rules demo",
-    "dev:server": "pnpm --filter @caravan/server dev",
+    "dev": "pnpm --filter @caravan/web dev",
     "dev:web": "pnpm --filter @caravan/web dev",
     "build": "pnpm --filter @caravan/web build",
-    "start": "pnpm --filter @caravan/server start"
+    "start": "pnpm --filter @caravan/web preview",
+    "tournament": "pnpm --filter @caravan/host tournament"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

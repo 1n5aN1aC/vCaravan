@@ -1,8 +1,8 @@
 /**
  * Fetching things before they are wanted.
  *
- * Everything here is already bundled and content-hashed, and the server marks
- * hashed URLs `immutable` (see `server.ts`), so a warmed file stays warm across
+ * Everything here is already bundled and content-hashed, so any static host
+ * worth using lets it be cached for good, and a warmed file stays warm across
  * reloads and matches. All this module decides is *when* to ask for each one.
  *
  * Two tiers, because the point is a head start rather than a stampede:

@@ -12,29 +12,45 @@ authoritative ruleset, and the reasoning behind each resolution, lives in
 
 ## Running it
 
+There is no server. The whole game is a static site: the player who creates a
+table runs it in their own browser tab, and the other player's tab connects to
+it directly over WebRTC, found through [PeerJS](https://peerjs.com/)'s free
+public broker.
+
 ```bash
 pnpm install
-pnpm build      # builds the web client
-pnpm start      # serves client + websocket on http://localhost:8787
+pnpm dev        # http://localhost:5173, with hot reload
 ```
 
-Open the page, click **Create a table**, and share the four-letter code. The
-second player enters it on the same page. Other machines on the LAN use
-`http://<your-ip>:8787`.
+Open the page, click **Create a table**, and share the six-letter code. The
+second player enters it on the same page, from anywhere — not just the LAN.
 
-A seat is held per browser tab, so testing both sides on one machine means two
-*separate* browsers or profiles — two tabs of the same browser share storage and
-will fight over the same seat.
-
-Set `PORT` to move it: `PORT=8788 pnpm start`.
-
-For hot reload while developing, run the two dev servers in separate terminals —
-Vite proxies the websocket to the API server:
+To build and serve it as it would be deployed:
 
 ```bash
-pnpm dev:server
-pnpm dev:web     # http://localhost:5173
+pnpm build      # writes apps/web/dist
+pnpm start      # serves that build on http://localhost:8787
 ```
+
+`apps/web/dist` is self-contained and uses relative URLs, so it can be dropped
+onto any static host — GitHub Pages, Netlify, an S3 bucket — at any path.
+
+A seat is held per browser tab, so two tabs of the same browser can play each
+other.
+
+### What "no server" still depends on
+
+- **The PeerJS broker** (`0.peerjs.com`), only to introduce the two tabs. Once
+  they are connected it carries nothing. It is a free service with no uptime
+  promise; if it is down, new tables cannot be found, though a match already
+  under way carries on. `peerJsNetwork()` in `apps/web/src/peer.ts` takes
+  PeerJS options to point at a self-hosted `peerjs-server` instead.
+- **STUN, but no TURN.** That connects most home networks. Two players both
+  behind strict NATs (some corporate and mobile networks) will not reach each
+  other without a TURN relay, which goes in the same options as `iceServers`.
+- **Finding a game means sharing a code.** There is no lobby or random
+  matchmaking: listing who is online needs something shared to list it, and
+  the public broker deliberately does not offer that.
 
 ## Layout
 
@@ -42,25 +58,40 @@ pnpm dev:web     # http://localhost:5173
 |---|---|
 | `packages/rules` | The engine. Pure, no I/O, no framework, injected seeded PRNG. |
 | `packages/protocol` | Wire message types, Zod schemas, and the redaction choke-point. |
-| `apps/server` | Node + `ws`. Authoritative. Also serves the built client. |
-| `apps/web` | React + Vite. Thin renderer plus local legality highlighting. |
+| `packages/host` | The table: rooms, seats, tokens and the AI. Pure TypeScript, run in the host's tab. |
+| `apps/web` | React + Vite. The board, plus the host's table and the PeerJS links between tabs. |
 
-`packages/rules` is the centrepiece. The server imports it as the authority; the
-client imports the *same* code to highlight legal moves without a round-trip.
-The rules are written and tested exactly once.
+`packages/rules` is the centrepiece. The host imports it as the authority; both
+tabs import the *same* code to highlight legal moves without a round-trip. The
+rules are written and tested exactly once.
+
+`packages/host` is what used to be the server, minus the HTTP and WebSocket
+code. Its `Hub` never knew what a socket was — it talks to seats through a
+two-method `Connection` — so it moved into the browser unchanged in substance.
+In the web app, `HostTable` (`table.ts`) runs it and owns the PeerJS
+registration; `CaravanClient` (`net.ts`) is one tab's seat, talking to its own
+tab's table over a local link or to the host's tab over a PeerJS channel.
 
 ### Authority and secrecy
 
-The server owns deck order, both hands and all state. Clients send intents and
-receive only what their seat may see. Client-side rules are advisory UI only —
-every move is independently re-validated server-side, and a rejected intent
-triggers a resync.
+The host's table owns deck order, both hands and all state. Seats send intents
+and receive only what they may see. Client-side rules are advisory UI only —
+every move is independently re-validated by the table, and a rejected intent
+triggers a resync. The host's own seat goes through exactly the same path as
+the guest's, over a local link instead of a PeerJS channel.
+
+**The host can cheat.** The table runs in the host's tab, so the guest's hand,
+both deck orders and the seed are all in that tab's memory for anyone who opens
+the dev tools. Redaction still keeps them off the wire, so the guest learns
+nothing it shouldn't; it is the host that is trusted. Removing that trust needs
+a cryptographic shuffle (mental poker), which is a project of its own. Play
+with people you would play cards with in person.
 
 `redactFor(seat, state)` is the single function by which state reaches the wire;
 `hydrateForClient` is its exact mirror. A test asserts that the legal-move list
 computed from *redacted* state is identical to the one computed from
 *authoritative* state at every ply — if those ever diverge, the UI would
-highlight moves the server rejects.
+highlight moves the host rejects.
 
 ## The table
 
@@ -162,13 +193,18 @@ fixture.
 
 ## Not in v1
 
-Accounts, matchmaking, ranking, chat, spectators, rematch, a move
-log, persistence across restarts, and public hosting. The structure accommodates
-each without rework — see "Designed-for extensions" in [`plan.txt`](plan.txt). A
-server restart kills in-flight matches; that is accepted.
+Accounts, matchmaking, ranking, chat, spectators and a move log. The structure
+accommodates each without rework — see "Designed-for extensions" in
+[`plan.txt`](plan.txt).
+
+The host's tab saves its table to session storage after every change, so a
+reload — of either tab — puts the match back where it was: the host's tab
+reclaims its code on the broker, and the guest, which has been redialling all
+along, resumes its seat by token. Closing the host's tab ends the match once
+the guest's 90s grace window runs out.
 
 Cards are animated — dealt, slid off the table when destroyed, and dragged — so
-that entry has left this list. The server still sends a per-move event stream
+that entry has left this list. The table still sends a per-move event stream
 alongside each snapshot; nothing reads it today, and it is what a move log or a
 replay viewer would be built on.
 
@@ -188,14 +224,14 @@ choose another player and nothing about the room differs from before.
 
 The AI is a `Connection` occupying seat 1, so presence, room status, redaction
 and "that room is full" all keep working with no special cases, and its moves go
-in through the same `move` path a socket's do — re-validated by the engine and
+in through the same `move` path a guest's do — re-validated by the engine and
 recorded in `room.moves`, so a solo match replays from `{ seed, decks, moves }`
 like any other. It plays the table's whole pool and submits that deck at create
 time — the deck a player who trimmed nothing would bring — which
 leaves the deal waiting only on the host. It answers after a fixed delay
 (`BOT_DELAY_MS`) so the table does not snap.
 
-`chooseMove` (`apps/server/src/bot.ts`) never disbands a caravan that wasn't
+`chooseMove` (`packages/host/src/bot.ts`) never disbands a caravan that wasn't
 already unsellable, and never returns anything `listLegalMoves` didn't already
 call legal. Past that, the first three difficulties are different tiers of
 effort, not the same algorithm with a knob turned — and the fourth is the third
@@ -269,7 +305,7 @@ Randomness — both the sampling and the tie-breaks — comes from the engine's
 seeded PRNG, so the same position always yields the same choice at every
 difficulty.
 
-Strategy lives in the server, not in `packages/rules`, which stays a statement
+Strategy lives in `packages/host`, not in `packages/rules`, which stays a statement
 of how the rules work and holds no opinions about how to win.
 
 ### Deck building
@@ -284,7 +320,7 @@ opponent before deciding what to cut.
 
 The rules engine owns validity (`checkDeckSelection`) and dealing from a
 built deck (`createMatch(seed, decks)`) exactly the way it already owns move
-legality — the server re-validates independently, so the client's floor
+legality — the host re-validates independently, so the client's floor
 enforcement is advisory UI, same as everywhere else in this project. A deck
 thin enough on number cards to make the ordinary auto-mulligan loop struggle
 falls back to a stacked deal rather than failing outright; both paths are

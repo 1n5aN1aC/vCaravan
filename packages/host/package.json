@@ -1,22 +1,23 @@
 {
-  "name": "@caravan/server",
+  "name": "@caravan/host",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts",
     "tournament": "tsx src/deck-tournament.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@caravan/protocol": "workspace:*",
-    "@caravan/rules": "workspace:*",
-    "ws": "^8.18.0"
+    "@caravan/rules": "workspace:*"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^3.2.7"

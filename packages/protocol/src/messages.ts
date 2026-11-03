@@ -1,12 +1,13 @@
 import { DECK_MODE_IDS, type DeckModeId } from '@caravan/rules';
 import { z } from 'zod';
+import { NET } from './constants.js';
 
 /**
  * Wire protocol. A discriminated union on `t`, validated by Zod at both ends,
  * so a shape mismatch is caught at the boundary rather than deep in a handler.
  */
 
-export const RoomCode = z.string().regex(/^[A-Z]{4}$/);
+export const RoomCode = z.string().regex(new RegExp(`^[A-Z]{${NET.ROOM_CODE_LENGTH}}$`));
 
 /**
  * How hard the AI opponent plays. Absent from a `create` message means the room
@@ -37,7 +38,7 @@ export const MoveSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
-/** Client -> server. */
+/** Seat -> table. From a guest, this crosses a PeerJS channel. */
 export const ClientMessage = z.discriminatedUnion('t', [
   /**
    * `bot` set means seat 1 is filled by the AI at that difficulty. `mode`
@@ -50,7 +51,7 @@ export const ClientMessage = z.discriminatedUnion('t', [
     mode: DeckModeSchema.optional(),
   }),
   z.object({ t: z.literal('join'), code: RoomCode }),
-  /** Reconnect into a seat held by an HMAC-signed token from localStorage. */
+  /** Reconnect into a seat with the token the table issued it. */
   z.object({ t: z.literal('resume'), token: z.string() }),
   /**
    * The card ids this seat's built deck keeps. Bounds here are only shape
@@ -76,14 +77,14 @@ export type RoomStatus = 'waiting' | 'building' | 'playing' | 'ended';
 export type EndReason = 'finished' | 'abandoned' | 'idle' | 'opponent-left';
 
 /**
- * Server -> client. Not Zod-validated on the way out (the compiler already
+ * Table -> seat. Not Zod-validated on the way out (the compiler already
  * guarantees the shape); the client parses defensively with `ServerMessage`.
  */
 export interface SeatedMessage {
   t: 'seated';
   code: string;
   seat: 0 | 1;
-  /** Persist in localStorage; replay with `resume` after a refresh. */
+  /** Kept in session storage; replayed with `resume` after a refresh. */
   token: string;
 }
 
@@ -117,7 +118,7 @@ export interface StateMessage {
 export interface ErrorMessage {
   t: 'error';
   message: string;
-  /** True when the server rejected a move and is resyncing authoritative state. */
+  /** True when the table rejected a move and is resyncing authoritative state. */
   resync: boolean;
 }
 

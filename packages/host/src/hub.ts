@@ -36,7 +36,7 @@ export interface Connection {
 
 /**
  * The AI's seat. It is a `Connection` purely so it occupies seat 1 the way a
- * socket would — presence, room status and "that room is full" all keep working
+ * peer link would — presence, room status and "that room is full" all keep working
  * with no special cases. It is never actually sent anything: the bot is driven
  * from `room.state` after each move, not from redacted messages, because it has
  * to hand real state to the engine to score a move.
@@ -57,6 +57,11 @@ const realScheduler: Scheduler = (fn, ms) => {
 /** How long the AI "thinks" before playing, so the table does not snap. */
 export const BOT_DELAY_MS = 800;
 
+export interface TableOptions {
+  bot?: Difficulty;
+  mode?: DeckModeId;
+}
+
 interface Session {
   connection: Connection;
   code: string;
@@ -64,8 +69,9 @@ interface Session {
 }
 
 /**
- * All room and match orchestration, with no knowledge of WebSockets — which is
- * what lets the whole thing be driven by a scripted move list in tests.
+ * All room and match orchestration, with no knowledge of the transport — which
+ * is what lets it run in the host's browser tab behind PeerJS, and be driven by
+ * a scripted move list in tests.
  */
 export class Hub {
   private sessions = new Map<Connection, Session>();
@@ -86,7 +92,7 @@ export class Hub {
       case 'ping':
         return connection.send({ t: 'pong' });
       case 'create':
-        return this.create(connection, message.bot, message.mode);
+        return this.create(connection, { bot: message.bot, mode: message.mode });
       case 'join':
         return this.join(connection, message.code);
       case 'resume':
@@ -139,15 +145,50 @@ export class Hub {
     }
   }
 
+  /**
+   * Opens a room under a code the caller already holds. A browser host has to
+   * claim its code on the PeerJS broker *before* the room exists — the code is
+   * the address a guest dials — so it cannot let `create` pick one.
+   */
+  host(connection: Connection, options: TableOptions & { code: string }): void {
+    if (this.store.get(options.code)) return this.fail(connection, 'that code is already open');
+    this.create(connection, options);
+  }
+
+  /**
+   * Puts back a room saved before a refresh. Every human seat comes back
+   * disconnected, inside a fresh grace window, and is reclaimed by `resume` with
+   * its token like any other dropped connection — the host's own seat included.
+   */
+  restore(room: Room): void {
+    this.store.create(room);
+    this.seats.set(room.code, [null, null]);
+    const now = this.now();
+    ([0, 1] as Seat[]).forEach((seat) => {
+      if (room.claimed[seat]) room.disconnectedAt[seat] = now;
+    });
+    room.lastActivity = now;
+    if (room.bot) {
+      this.seatBot(room);
+      this.scheduleBot(room);
+    }
+  }
+
+  /** Ends a room from outside — the host leaving takes the table with it. */
+  end(code: string, reason: EndReason): void {
+    const room = this.store.get(code);
+    if (room) this.endRoom(room, reason);
+  }
+
   // -- room lifecycle -------------------------------------------------------
 
-  private create(connection: Connection, bot?: Difficulty, mode?: DeckModeId): void {
-    const code = generateCode((c) => this.store.get(c) !== undefined);
+  private create(connection: Connection, options: TableOptions & { code?: string }): void {
+    const code = options.code ?? generateCode((c) => this.store.get(c) !== undefined);
     const room: Room = {
       code,
       seed: generateSeed(),
-      bot: bot ?? null,
-      mode: mode ?? DEFAULT_DECK_MODE,
+      bot: options.bot ?? null,
+      mode: options.mode ?? DEFAULT_DECK_MODE,
       state: null,
       decks: [null, null],
       moves: [],
@@ -166,15 +207,20 @@ export class Hub {
     // `build` mode draw a random named strategy (see `pickBotDeck`); every
     // other difficulty/mode still brings the whole pool, the same deck a
     // human who removed nothing would.
-    if (bot) {
-      const botConnection = new BotConnection();
+    if (room.bot) {
       room.claimed[1] = true;
-      room.decks[1] = pickBotDeck(bot, room.mode, room.seed, 1);
-      this.seats.get(code)![1] = botConnection;
-      this.sessions.set(botConnection, { connection: botConnection, code, seat: 1 });
+      room.decks[1] = pickBotDeck(room.bot, room.mode, room.seed, 1);
+      this.seatBot(room);
     }
 
     this.maybeStart(room);
+  }
+
+  private seatBot(room: Room): void {
+    const botConnection = new BotConnection();
+    room.disconnectedAt[1] = null;
+    this.seats.get(room.code)![1] = botConnection;
+    this.sessions.set(botConnection, { connection: botConnection, code: room.code, seat: 1 });
   }
 
   private join(connection: Connection, code: string): void {
@@ -303,6 +349,7 @@ export class Hub {
     }
     this.seats.delete(room.code);
     this.store.delete(room.code);
+    this.tokens.forget(room.code);
   }
 
   // -- moves ----------------------------------------------------------------
@@ -314,7 +361,7 @@ export class Hub {
     if (!room?.state) return this.fail(connection, 'no match in progress');
 
     try {
-      // The server re-validates independently; the client's own legality check
+      // The host re-validates independently; the client's own legality check
       // is advisory UI only.
       const { state, events } = applyMove(room.state, session.seat, move);
       room.state = state;
@@ -399,7 +446,7 @@ export class Hub {
     this.botTimers.set(room.code, cancel);
   }
 
-  /** The only path by which match state reaches a socket. */
+  /** The only path by which match state reaches a seat. */
   private sendState(
     connection: Connection,
     room: Room,
