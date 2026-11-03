@@ -45,9 +45,15 @@ other.
   promise; if it is down, new tables cannot be found, though a match already
   under way carries on. `peerJsNetwork()` in `apps/web/src/peer.ts` takes
   PeerJS options to point at a self-hosted `peerjs-server` instead.
-- **STUN, but no TURN.** That connects most home networks. Two players both
-  behind strict NATs (some corporate and mobile networks) will not reach each
-  other without a TURN relay, which goes in the same options as `iceServers`.
+- **PeerJS's free STUN and TURN servers.** PeerJS's default ICE config uses
+  Google's public STUN server, which connects most home networks directly, and
+  PeerJS's own TURN relays (`eu-0` and `us-0.turn.peerjs.com`). The relays are
+  the fallback when both players are behind strict NATs (some corporate and
+  mobile networks); traffic then goes through the relay instead of peer to
+  peer. They are free, shared and carry no uptime promise either, so a pair
+  that needs one can fail to connect when they are busy or down. Your own TURN
+  servers go in `config.iceServers` in the same options; setting it replaces
+  the defaults rather than adding to them.
 - **Finding a game means sharing a code.** There is no lobby or random
   matchmaking: listing who is online needs something shared to list it, and
   the public broker deliberately does not offer that.

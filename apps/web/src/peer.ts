@@ -53,9 +53,10 @@ const CONNECT_TIMEOUT_MS = 15_000;
 const BROKER_RETRY_MS = 3_000;
 
 /**
- * PeerJS over its free public broker, with STUN only. That covers most home
- * networks; a pair that are both behind strict NATs would need a TURN relay,
- * which can be added to `config.iceServers` here without touching anything else.
+ * PeerJS over its free public broker, with PeerJS's default ICE servers:
+ * Google's public STUN, plus PeerJS's own free TURN relays for pairs that are
+ * both behind strict NATs. Neither is ours or promises uptime. Self-hosted
+ * servers go in `config.iceServers`, which replaces those defaults wholesale.
  */
 export function peerJsNetwork(options: ConstructorParameters<typeof Peer>[1] = {}): PeerNetwork {
   return {
