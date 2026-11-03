@@ -202,6 +202,49 @@ describe('new table options', () => {
 });
 
 /**
+ * Registering a table, or dialling one, takes as long as the broker does. The
+ * start page is swapped out for that wait, so it cannot be clicked twice.
+ */
+describe('while a table is opening', () => {
+  function opening(): void {
+    // A broker that never answers holds the wait open for as long as the test
+    // needs it.
+    vi.spyOn(network, 'listen').mockReturnValue(new Promise(() => {}));
+    render(<App client={client} />);
+    act(() => {
+      screen.getByText('Create a table').click();
+    });
+    act(() => {
+      screen.getByText('Start').click();
+    });
+  }
+
+  it('replaces the start page with a wait that cannot be clicked twice', () => {
+    opening();
+    expect(screen.getByText('Opening your table…')).toBeTruthy();
+    expect(screen.queryByText('Create a table')).toBeNull();
+    expect(screen.queryByLabelText('Room code')).toBeNull();
+  });
+
+  it('goes back to the start page on Cancel', () => {
+    opening();
+    act(() => {
+      screen.getByText('Cancel').click();
+    });
+    expect(screen.getByText('Create a table')).toBeTruthy();
+    expect(screen.queryByText('Opening your table…')).toBeNull();
+  });
+
+  it('says it is connecting while a code is being dialled', () => {
+    vi.spyOn(network, 'connect').mockReturnValue(new Promise(() => {}));
+    render(<App client={client} />);
+    act(() => client.joinRoom(CODE));
+    expect(screen.getByText('Connecting to the table…')).toBeTruthy();
+    expect(screen.queryByText('Create a table')).toBeNull();
+  });
+});
+
+/**
  * Which screen a seat lands on is the table's mode talking, and the mode is
  * only ever learned from the server — a seat that joined by code never saw the
  * options screen at all.

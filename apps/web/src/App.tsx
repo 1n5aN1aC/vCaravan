@@ -49,6 +49,7 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
   useEffect(() => warmAssets(), []);
 
   const seated = state.seat !== null;
+  const connecting = state.connectivity === 'connecting';
   // The final board is the record of how the match went, so it stays up once
   // the room ends rather than being swapped out for a bare message — the result
   // is laid over it. Ending the room only freezes the board; it does not remove
@@ -135,7 +136,21 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
         />
       )}
 
-      {!seated && !creating && (
+      {/* Registering on the broker, or dialling a host, can take a few seconds.
+          The start page is swapped out for the wait, so there is nothing to
+          click twice — and a way back if the other end never answers. */}
+      {!seated && connecting && (
+        <section className="landing connecting">
+          <span className="or">
+            {state.hosting ? 'Opening your table…' : 'Connecting to the table…'}
+          </span>
+          <button className="ghost" onClick={() => client.cancel()}>
+            Cancel
+          </button>
+        </section>
+      )}
+
+      {!seated && !creating && !connecting && (
         <section className="landing">
           <button onClick={() => setCreating(true)}>Create a table</button>
           <span className="or">or join one</span>

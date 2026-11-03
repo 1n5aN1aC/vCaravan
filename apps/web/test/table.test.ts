@@ -165,6 +165,125 @@ describe('a table over PeerJS', () => {
   });
 });
 
+/**
+ * Holds every `listen` and `connect` until released, as a slow broker would —
+ * which is the window in which the start page used to take a second click.
+ */
+function slowBroker(): { release: () => void; listen: ReturnType<typeof vi.spyOn>; connect: ReturnType<typeof vi.spyOn> } {
+  const gates: Array<() => void> = [];
+  const hold = () => new Promise<void>((done) => gates.push(done));
+  const listen = network.listen.bind(network);
+  const connect = network.connect.bind(network);
+  return {
+    release: () => gates.splice(0).forEach((open) => open()),
+    listen: vi.spyOn(network, 'listen').mockImplementation(async (id, onChannel) => {
+      await hold();
+      return listen(id, onChannel);
+    }),
+    connect: vi.spyOn(network, 'connect').mockImplementation(async (id) => {
+      await hold();
+      return connect(id);
+    }),
+  };
+}
+
+describe('opening a table', () => {
+  it('opens one table however many times Start is pressed', async () => {
+    const broker = slowBroker();
+    const host = tab();
+    const first = host.createRoom(undefined, 'build');
+    void host.createRoom(undefined, 'build');
+    void host.createRoom('easy', 'classic');
+    expect(broker.listen).toHaveBeenCalledTimes(1);
+
+    broker.release();
+    await first;
+    await settle();
+    expect(host.state).toMatchObject({ seat: 0, hosting: true, mode: 'build', connectivity: 'open' });
+  });
+
+  it('dials once however many times Join is pressed', async () => {
+    const host = tab();
+    await host.createRoom(undefined, 'build');
+    await settle();
+    const broker = slowBroker();
+    const guest = tab();
+    guest.joinRoom(host.state.code!);
+    guest.joinRoom(host.state.code!);
+    expect(broker.connect).toHaveBeenCalledTimes(1);
+
+    broker.release();
+    await settle();
+    expect(guest.state.seat).toBe(1);
+  });
+
+  it('lets a Start that has not finished be cancelled, leaving nothing behind', async () => {
+    const storage = new MemoryStorage();
+    const broker = slowBroker();
+    const host = tab(storage);
+    const opening = host.createRoom(undefined, 'build');
+    expect(host.state).toMatchObject({ connectivity: 'connecting', hosting: true });
+
+    host.cancel();
+    expect(host.state).toMatchObject({ connectivity: 'idle', hosting: false, seat: null });
+
+    // The broker answers after all — and is ignored.
+    broker.release();
+    await opening;
+    await settle();
+    vi.advanceTimersByTime(2_000);
+    expect(host.state).toMatchObject({ connectivity: 'idle', hosting: false, seat: null, code: null });
+    expect(storage.length).toBe(0);
+    const id = broker.listen.mock.calls[0]![0] as string;
+    expect(network.has(id)).toBe(false);
+
+    // And the start page works again afterwards.
+    broker.listen.mockRestore();
+    await host.createRoom(undefined, 'build');
+    await settle();
+    expect(host.state.seat).toBe(0);
+  });
+
+  it('lets a Join that has not connected be cancelled', async () => {
+    const host = tab();
+    await host.createRoom(undefined, 'build');
+    await settle();
+    const broker = slowBroker();
+    const guest = tab();
+    guest.joinRoom(host.state.code!);
+    guest.cancel();
+
+    broker.release();
+    await settle();
+    expect(guest.state).toMatchObject({ connectivity: 'idle', seat: null });
+    expect(host.state.present).toEqual([true, false]);
+  });
+});
+
+describe('leaving', () => {
+  it('puts the host back on a clean start page', async () => {
+    const { host } = await seatedPair();
+    host.leave();
+    await settle();
+    expect(host.state).toMatchObject({
+      connectivity: 'idle',
+      status: 'idle',
+      endedReason: null,
+      seat: null,
+      hosting: false,
+    });
+  });
+
+  it('does the same for a solo table', async () => {
+    const solo = tab();
+    await solo.createRoom('easy', 'classic');
+    await settle();
+    solo.leave();
+    await settle();
+    expect(solo.state).toMatchObject({ connectivity: 'idle', status: 'idle', endedReason: null });
+  });
+});
+
 describe('refreshing', () => {
   it('puts a guest back in its seat after its link drops', async () => {
     const { guest, host } = await seatedPair();

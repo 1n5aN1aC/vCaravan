@@ -99,7 +99,14 @@ export class CaravanClient {
    * was refused — and, for a resume, that the remembered token is dead.
    */
   private claiming: 'join' | 'resume' | null = null;
-  /** Bumped by `dispose`, so async work started before it knows to stand down. */
+  /**
+   * A table is being opened or a code dialled, and nothing is linked yet. The
+   * start page has no seat to hide behind during that wait, so this is what
+   * stops a second click opening a second table — or a second dial.
+   */
+  private opening = false;
+  /** Bumped by `dispose`, `cancel` and `leave`, so async work — and messages
+      from a table — started before any of them knows to stand down. */
   private epoch = 0;
   private listeners = new Set<() => void>();
   private readonly storage: Storage | null;
@@ -135,15 +142,22 @@ export class CaravanClient {
 
   /** With a difficulty, seat 1 is filled by the AI; without, it waits for a human. */
   async createRoom(bot?: Difficulty, mode?: DeckModeId): Promise<void> {
-    if (this.link) return;
+    if (this.link || this.opening) return;
+    this.opening = true;
     this.patch({ connectivity: bot ? 'local' : 'connecting', hosting: true, error: null });
     const epoch = this.epoch;
     try {
       const { table, link } = await HostTable.create({ bot, mode }, this.tableOptions(bot));
-      if (epoch !== this.epoch) return table.suspend();
+      // Cancelled, or unmounted, while the broker was still answering. Nobody
+      // has seen the code yet, so the table is ended outright rather than put
+      // away for a reload to resurrect.
+      if (epoch !== this.epoch) return table.close('abandoned');
+      this.opening = false;
       this.table = table;
       this.link = link;
     } catch (error) {
+      if (epoch !== this.epoch) return;
+      this.opening = false;
       this.patch({
         connectivity: 'idle',
         hosting: false,
@@ -156,8 +170,22 @@ export class CaravanClient {
   }
 
   joinRoom(code: string): void {
-    if (this.link) return;
+    if (this.link || this.opening) return;
+    this.opening = true;
     void this.dial(code.trim().toUpperCase());
+  }
+
+  /**
+   * Gives up on a table still being opened or dialled — including a refreshed
+   * guest's redial, which is the one wait the player did not start themselves.
+   */
+  cancel(): void {
+    if (this.state.seat !== null) return;
+    this.epoch++;
+    this.opening = false;
+    this.remove(TOKEN_KEY);
+    this.drop();
+    this.patch(initial);
   }
 
   /** The card ids this seat's built deck keeps. Sent once, before the deal. */
@@ -175,6 +203,11 @@ export class CaravanClient {
   }
 
   leave(): void {
+    // The host's own table delivers on a microtask, so its goodbye — and
+    // anything else still queued — lands after this has already gone back to
+    // the start page. A new epoch keeps all of it from arriving there.
+    this.epoch++;
+    this.opening = false;
     this.remove(TOKEN_KEY);
     if (this.table) {
       // The table lives in this tab, so leaving takes it down for the guest too.
@@ -204,11 +237,19 @@ export class CaravanClient {
   }
 
   private tableOptions(bot?: Difficulty) {
+    // A table abandoned by `cancel` or `dispose` still finishes what it was
+    // doing — seating its host, reporting its registration — and none of that
+    // may reach a client that has moved on.
+    const epoch = this.epoch;
     return {
       network: bot ? null : this.network(),
       storage: this.storage,
-      onStatus: (status: TableStatus) => this.patch({ connectivity: status }),
-      onMessage: (message: ServerMessage) => this.receive(message),
+      onStatus: (status: TableStatus) => {
+        if (epoch === this.epoch) this.patch({ connectivity: status });
+      },
+      onMessage: (message: ServerMessage) => {
+        if (epoch === this.epoch) this.receive(message);
+      },
     };
   }
 
@@ -222,6 +263,7 @@ export class CaravanClient {
       channel = await this.network().connect(peerIdFor(code));
     } catch (error) {
       if (epoch !== this.epoch) return;
+      this.opening = false;
       if (this.read(TOKEN_KEY)) return this.lost();
       this.patch({
         connectivity: 'idle',
@@ -233,6 +275,7 @@ export class CaravanClient {
       return;
     }
     if (epoch !== this.epoch) return channel.close();
+    this.opening = false;
 
     this.link = { send: (message) => channel.send(message), close: () => channel.close() };
     this.heard = Date.now();
