@@ -1,4 +1,4 @@
-# Caravan
+# vCaravan
 
 A rules-correct, self-hosted, browser-based 1v1 implementation of Caravan, the
 card game from *Fallout: New Vegas*.

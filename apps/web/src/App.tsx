@@ -82,7 +82,7 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
   // the landing page — it stands on its own instead.
   const panel = (
     <section className="panel">
-      <h1>Caravan</h1>
+      <h1>vCaravan</h1>
 
       {seated && (
         <>

@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('Caravan UI crashed:', error, info.componentStack);
+    console.error('vCaravan UI crashed:', error, info.componentStack);
   }
 
   override render(): ReactNode {
