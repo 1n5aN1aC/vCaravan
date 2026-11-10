@@ -102,8 +102,8 @@ highlight moves the host rejects.
 ## The table
 
 The board is built for one shape: a phone held sideways. Held upright — with
-rotation lock on, say — the whole page is drawn sideways and turned, so the
-player turns the phone to play. It is laid out as
+rotation lock on, say — the table is drawn sideways and turned, so the
+player turns the phone to play. The start page and deck builder stay upright. It is laid out as
 cards on a table rather than as rows of form controls, and the whole match fits
 one screen without scrolling. Each of the three tracks is a column, and both players build **outward from a
 shared centre line**: the first card of a caravan sits against the middle, and

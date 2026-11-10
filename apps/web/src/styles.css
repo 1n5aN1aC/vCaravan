@@ -28,26 +28,6 @@
   --app-w: 100vw;
   --app-h: 100vh;
 
-  /*
-   * Cards on the table, and the slightly larger ones held in hand. Height is
-   * what a sideways phone runs out of, so the card is sized from it: two
-   * halves of `STACK_ROWS` (1.9) card-heights each, plus the centre line and
-   * the edges, have to fit the screen. Capped by width too, for a screen that
-   * is short *and* narrow. Everything that has to line up with a card — stack
-   * heights, overlap, the hand — is expressed in these.
-   */
-  --card-h: min(
-    calc((var(--app-h) - 4.4rem) / 3.9),
-    calc((var(--app-w) - 9rem) / 7)
-  );
-  --card-w: calc(var(--card-h) * 0.711);
-  --card-lw: calc(var(--card-w) * 1.05);
-  --card-lh: calc(var(--card-h) * 1.05);
-
-  /* A caravan column: the card itself, plus the strip beside it where attached
-     face cards fan out. */
-  --caravan-w: calc(var(--card-w) * 1.6);
-
   --radius: 0.35rem;
 
   --slide: 1000ms cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -58,21 +38,6 @@
 }
 @supports (height: 100dvh) {
   :root { --app-w: 100dvw; --app-h: 100dvh; }
-}
-
-/*
- * A phone held upright — rotation lock on, or simply not turned yet. The whole
- * page is drawn sideways and turned a quarter clockwise (see `main` below), so
- * the page's own width is the screen's height and its height the screen's
- * width. Everything sized from `--app-w`/`--app-h` follows.
- *
- * `ROTATED_QUERY` in rotation.ts must stay the same as this query.
- */
-@media (orientation: portrait) {
-  :root { --app-w: 100vh; --app-h: 100vw; }
-  @supports (height: 100dvh) {
-    :root { --app-w: 100dvh; --app-h: 100vw; }
-  }
 }
 
 * { box-sizing: border-box; }
@@ -89,10 +54,9 @@ body {
 /*
  * The page itself is `main`, pinned to exactly one screen, and anything that
  * does not fit — the deck builder's 54 cards — scrolls inside it rather than
- * the document scrolling. That is what lets the whole page be turned for an
- * upright phone: a turned element can scroll, but a turned document cannot.
- * It also stops iOS sliding the table up and down as its address bar hides
- * and shows.
+ * the document scrolling. That stops iOS sliding the table up and down as its
+ * address bar hides and shows, and lets the table be turned for an upright
+ * phone without the document around it moving.
  */
 body {
   overflow: hidden;
@@ -108,6 +72,29 @@ main {
   --pad-right: env(safe-area-inset-right);
   --pad-bottom: env(safe-area-inset-bottom);
   --pad-left: env(safe-area-inset-left);
+
+  /*
+   * Cards on the table, and the slightly larger ones held in hand. Height is
+   * what a sideways phone runs out of, so the card is sized from it: two
+   * halves of `STACK_ROWS` (1.9) card-heights each, plus the centre line and
+   * the edges, have to fit the screen. Capped by width too, for a screen that
+   * is short *and* narrow. Everything that has to line up with a card — stack
+   * heights, overlap, the hand — is expressed in these.
+   *
+   * Declared here rather than on :root so that when the table swaps
+   * `--app-w`/`--app-h` for an upright phone (below), these follow.
+   */
+  --card-h: min(
+    calc((var(--app-h) - 4.4rem) / 3.9),
+    calc((var(--app-w) - 9rem) / 7)
+  );
+  --card-w: calc(var(--card-h) * 0.711);
+  --card-lw: calc(var(--card-w) * 1.05);
+  --card-lh: calc(var(--card-h) * 1.05);
+
+  /* A caravan column: the card itself, plus the strip beside it where attached
+     face cards fan out. */
+  --caravan-w: calc(var(--card-w) * 1.6);
 
   position: fixed;
   top: 0;
@@ -135,26 +122,51 @@ main.playing {
 }
 
 /*
- * Upright: turned a quarter clockwise, so the page's top faces the screen's
- * right edge and the player turns the phone to their left to read it. Turned
- * about its top-left corner it would swing off the left of the screen, so it
- * is first moved one screen-width right.
+ * A phone held upright — rotation lock on, or simply not turned yet.
+ *
+ * Outside a match the page is left upright: it is only forms and the deck
+ * builder, and a turned page puts the on-screen keyboard (which the phone
+ * always draws upright) at odds with the text box it types into. The deck
+ * builder's cards are sized from the width instead, about six to a row.
+ *
+ * The table is drawn sideways and turned a quarter clockwise, so the page's
+ * top faces the screen's right edge and the player turns the phone to their
+ * left to read it. Its own width is the screen's height and its height the
+ * screen's width, and the cards follow from those. Turned about its top-left
+ * corner it would swing off the left of the screen, so it is first moved one
+ * screen-width right.
  *
  * A turned element is the containing block for `position: fixed` inside it, so
- * the Menu sheet and result banner turn with the page. The dragged card does
- * too, which is why its position is mapped into this frame in Board.tsx.
+ * the Menu sheet and result banner turn with the table. The dragged card does
+ * too, which is why its position is mapped into this frame (rotation.ts).
  *
  * The safe areas turn as well: the screen's top (the notch) is now the page's
  * left, and the screen's bottom (the home bar) its right.
+ *
+ * `ROTATED_QUERY` in rotation.ts must stay the same as this query.
  */
 @media (orientation: portrait) {
   main {
+    --card-h: calc((var(--app-w) - 4.5rem) / 6 / 0.711);
+  }
+  main.playing {
+    --app-w: 100vh;
+    --app-h: 100vw;
     transform-origin: 0 0;
     transform: translateX(100vw) rotate(90deg);
     --pad-top: env(safe-area-inset-right);
     --pad-right: env(safe-area-inset-bottom);
     --pad-bottom: env(safe-area-inset-left);
     --pad-left: env(safe-area-inset-top);
+  }
+  @supports (height: 100dvh) {
+    main.playing { --app-w: 100dvh; }
+  }
+  main.playing {
+    --card-h: min(
+      calc((var(--app-h) - 4.4rem) / 3.9),
+      calc((var(--app-w) - 9rem) / 7)
+    );
   }
 }
 

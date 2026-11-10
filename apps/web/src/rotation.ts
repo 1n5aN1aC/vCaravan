@@ -1,11 +1,12 @@
 /**
- * The page is drawn sideways and turned a quarter clockwise whenever the screen
- * is upright — a phone with rotation lock on, or one not turned yet. iOS gives
- * a web page no way to lock orientation, so this is the only way to get a
- * sideways table there. The turn itself is all CSS (`main` in styles.css);
- * this file is for the one thing script has to correct for.
+ * The table (`main.playing`) is drawn sideways and turned a quarter clockwise
+ * whenever the screen is upright — a phone with rotation lock on, or one not
+ * turned yet. iOS gives a web page no way to lock orientation, so this is the
+ * only way to get a sideways table there. The pages outside a match are left
+ * upright. The turn itself is all CSS (`main.playing` in styles.css); this
+ * file is for the one thing script has to correct for.
  *
- * Must stay the same as the `@media` query in styles.css that turns `main`.
+ * Must stay the same as the `@media` query in styles.css that turns the table.
  */
 export const ROTATED_QUERY = '(orientation: portrait)';
 
@@ -32,7 +33,7 @@ export function toPageFrame(
   y: number,
 ): { left: number; top: number } {
   if (!rotated()) return { left: x, top: y };
-  const frame = inside?.closest('main')?.getBoundingClientRect();
+  const frame = inside?.closest('main.playing')?.getBoundingClientRect();
   if (!frame) return { left: x, top: y };
   return { left: y - frame.top, top: frame.right - x };
 }

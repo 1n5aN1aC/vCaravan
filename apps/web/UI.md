@@ -5,8 +5,8 @@ Orientation for changing the board. Read this instead of reading the CSS.
 **There is one layout: a phone held sideways.** There is no desktop or upright
 version. A bigger screen gets the same layout with bigger cards, because card
 size comes from the screen's height. An upright phone — rotation lock on, or
-just not turned yet — gets the same layout drawn sideways and turned a quarter,
-so the player turns the phone to play.
+just not turned yet — gets the same table drawn sideways and turned a quarter,
+so the player turns the phone to play. The pages outside a match stay upright.
 
 The one rule that shapes everything: **all theming lives in `src/styles.css`**,
 and components carry no styling decisions. Anything that looks like a design
@@ -74,29 +74,33 @@ little more than each card's corner index. The start page, table options and
 deck builder are tightened for a short screen too, and scroll if they still do
 not fit.
 
-## Upright phones: the page is turned
+## Upright phones: the table is turned
 
 Safari gives a web page no way to lock orientation, even one added to the Home
-Screen. So under `@media (orientation: portrait)` the whole page — start page,
-deck builder, table, Menu — is drawn at the screen's height × width and turned
-90° clockwise. Its top faces the screen's right edge; the player turns the
-phone to their left.
+Screen. So under `@media (orientation: portrait)` the table (`main.playing`,
+with its Menu and result banner) is drawn at the screen's height × width and
+turned 90° clockwise. Its top faces the screen's right edge; the player turns
+the phone to their left.
+
+The start page, table options and deck builder are **not** turned. They were
+once, but the on-screen keyboard is drawn upright by the phone whatever the
+page does, so typing a room code into a turned page was a mess. Upright, the
+deck builder's cards are sized from the width instead (about six to a row).
 
 - **`main` is the page.** It is `position: fixed`, exactly one screen, and
   scrolls inside itself when its content does not fit (the deck builder). The
-  document never scrolls. A turned element can scroll; a turned document
-  cannot.
-- **`--app-w` / `--app-h` swap** on `:root` when upright, and card size is
-  worked out from them, so it follows the turned page automatically.
+  document never scrolls.
+- **`--app-w` / `--app-h` swap** on `main.playing` when upright, and the card
+  variables are declared on `main` (not `:root`) so they follow the swap.
 - **A transformed element is the containing block for `position: fixed`
-  inside it.** The Menu sheet and result banner turn with the page for free.
+  inside it.** The Menu sheet and result banner turn with the table for free.
   The dragged card needs the finger's screen position mapped into the turned
   frame (`toPageFrame` in `rotation.ts`). Hit testing needs no mapping:
   `elementFromPoint` works on what is drawn.
 - **Safe areas turn too.** The screen's top (the notch) becomes the page's
   left, so `main` swaps its four `env(safe-area-inset-*)` values round.
-- **System UI does not turn.** The keyboard for the room-code field, and any
-  native popup, still appears upright.
+- **System UI does not turn**, which is why only the table is turned: it has
+  no text fields.
 
 `ROTATED_QUERY` in `rotation.ts` and the `@media` query in `styles.css` must
 match.
@@ -410,6 +414,5 @@ one-liner.
   lift, and the result overlay. Written and type-checked, never looked at.
 - **`plan.txt` still describes the move log** (lines 274, 358, 450), which no
   longer exists.
-- **Scrolling the turned deck builder by touch is unverified.** It scrolls in
-  the browser's phone emulation; whether a swipe on a real iPhone scrolls it in
-  the direction the player expects has not been checked.
+- **The turned table on a real iPhone is unverified** — safe areas in
+  particular. It is right in the browser's phone emulation.
