@@ -13,12 +13,12 @@ import {
   type Move,
   type Seat,
 } from '@caravan/rules';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { fanAngle, overlapStep, STACK_ROWS } from './layout.js';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { overlapStep, STACK_ROWS } from './layout.js';
 import { PlayingCard } from './PlayingCard.js';
+import { toPageFrame } from './rotation.js';
 import { useCardDrag } from './useCardDrag.js';
 import { useDepartures } from './useDepartures.js';
-import { useOpponentHand } from './useOpponentHand.js';
 import { useSoundCues } from './useSoundCues.js';
 
 /**
@@ -44,6 +44,9 @@ const SUIT_GLYPH = { S: '♠', H: '♥', D: '♦', C: '♣' } as const;
 
 /** The three tracks, typed narrowly so the engine's caravan index is satisfied. */
 const CARAVANS = [0, 1, 2] as const;
+
+/** The discard pile, as a drop target. */
+const DISCARD_KEY: TargetKey = 'discard';
 
 const EMPTY_TARGETS: ReadonlyMap<TargetKey, Move> = new Map();
 
@@ -110,7 +113,7 @@ export function Board({
    */
   events?: readonly GameEvent[];
   onMove: (move: Move) => void;
-  /** Session chrome from App, hosted at the top of the hand column. */
+  /** Session chrome from App, shown behind the Menu button. */
   panel?: ReactNode;
   /**
    * The room is over, so the board is a record rather than a game. It stays on
@@ -120,6 +123,8 @@ export function Board({
   frozen?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   // Cards landing on and leaving the table, heard for both players. `predict`
   // sounds this seat's own moves the instant they are chosen, rather than
@@ -130,10 +135,6 @@ export function Board({
   const them: Seat = you === 0 ? 1 : 0;
   const yourTurn = view.turn === you && view.phase !== 'over' && !frozen;
   const hand = view.players[you].hand ?? [];
-  const theirHand = useOpponentHand(
-    view.players[them].handCount,
-    view.players[them].deckCount,
-  );
 
   // One hydration per snapshot, shared by legality, track and status queries.
   const engine = useMemo(() => hydrateForClient(view), [view]);
@@ -173,17 +174,35 @@ export function Board({
     [onMove, predictSound, engine, you],
   );
 
+  /**
+   * Cards that may be thrown away this turn. Kept apart from `targetsByCard`
+   * on purpose: nearly every card can be discarded, so folding it in there
+   * would make every card look playable and every count of "legal
+   * destinations" one too high.
+   */
+  const discardable = useMemo(
+    () => new Set(legal.flatMap((m) => (m.type === 'discard' ? [m.cardId] : []))),
+    [legal],
+  );
+
   const isTarget = useCallback(
-    (cardId: string, key: string) => targetsByCard.get(cardId)?.has(key) ?? false,
-    [targetsByCard],
+    (cardId: string, key: string) =>
+      key === DISCARD_KEY
+        ? discardable.has(cardId)
+        : (targetsByCard.get(cardId)?.has(key) ?? false),
+    [targetsByCard, discardable],
   );
 
   const dropCard = useCallback(
     (cardId: string, key: string) => {
+      if (key === DISCARD_KEY) {
+        if (discardable.has(cardId)) fire({ type: 'discard', cardId });
+        return;
+      }
       const move = targetsByCard.get(cardId)?.get(key);
       if (move) fire(move);
     },
-    [targetsByCard, fire],
+    [targetsByCard, discardable, fire],
   );
 
   const toggle = useCallback(
@@ -206,21 +225,33 @@ export function Board({
 
   const strike = useMemo(() => readStrike(view, events), [view, events]);
 
-  const canDiscard = legal.some((m) => m.type === 'discard' && m.cardId === selectedCard?.id);
+  const canDiscard = !!selectedCard && discardable.has(selectedCard.id);
+  // The discard pile lights up for whichever card is in play — dragged or
+  // selected — the same way the table does.
+  const activeDiscardable = !!activeCard && discardable.has(activeCard);
   const disbandable = new Set(legal.filter((m) => m.type === 'disband').map((m) => m.caravan));
+
+  const turnText =
+    view.phase === 'over' || frozen
+      ? 'Match over'
+      : yourTurn
+        ? view.phase === 'opening'
+          ? 'Opening — start each caravan'
+          : activeCard
+            ? targets.size > 0
+              ? `${targets.size} legal destination${targets.size === 1 ? '' : 's'}`
+              : activeDiscardable
+                ? 'Can only be discarded'
+                : 'Nowhere legal to play that one'
+            : 'Your move — pick a card'
+        : 'Waiting for opponent…';
 
   return (
     <div
+      ref={boardRef}
       className={`board ${yourTurn ? 'active' : ''} ${drag ? 'dragging' : ''}`}
       style={{ '--rows': STACK_ROWS } as never}
     >
-      {/* Panel, table and hand are placed by grid area rather than by document
-          order: side by side they stack panel-over-hand beside the table, but in
-          one column the panel has to lead and the hand has to follow the play
-          area. Document order is the one-column order, so that reading matches
-          exactly where it is tightest. */}
-      {panel}
-
       <div className="table">
         <div className="columns">
           {CARAVANS.map((i) => (
@@ -237,7 +268,6 @@ export function Board({
               />
 
               <Gauge
-                index={i}
                 opponent={view.players[them].caravans[i]!}
                 yours={view.players[you].caravans[i]!}
                 opponentStatus={caravanStatus(engine, them, i)}
@@ -263,50 +293,27 @@ export function Board({
         </div>
       </div>
 
-      <aside className="hand-area">
-        {/* The opponent's hand lives over here rather than over their cards:
-            it is read alongside your own hand and deck, not the table. */}
-        <p className="table-head">
-          <span className="who">Opponent</span>
-          <span className="pill">{view.players[them].deckCount} in deck</span>
-        </p>
-
-        {/* Their held cards, face down. What the cards are is redacted; the fan
-            shows how many, and one specific back leaves when they spend one —
-            see useOpponentHand for how much of this is (honest) invention. */}
-        <div
-          className="opp-hand"
-          role="img"
-          aria-label={`Opponent holds ${theirHand.length} card${theirHand.length === 1 ? '' : 's'}`}
-        >
-          {theirHand.map((held, i) => (
-            <span
-              key={held.key}
-              className="opp-card"
-              style={{ '--a': `${fanAngle(i, theirHand.length)}deg`, '--z': i } as never}
-            >
-              {held.back ? (
-                <img className="card-back" src={held.back} alt="" draggable={false} />
-              ) : (
-                <span className="card-back drawn" />
-              )}
-            </span>
-          ))}
+      {/* The rail beside the tracks: the opponent's pile and the Menu button at
+          the top, then — gathered at the bottom — the turn line, your hand, and
+          the discard pile beside your own. */}
+      <aside className="rail">
+        <div className="rail-row">
+          <Pile
+            who="Opponent"
+            deck={view.players[them].deckCount}
+            hand={view.players[them].handCount}
+          />
+          <button
+            type="button"
+            className="menu-button"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(true)}
+          >
+            Menu
+          </button>
         </div>
 
-        <p className={`turn ${yourTurn ? 'yours' : ''}`}>
-          {view.phase === 'over' || frozen
-            ? 'Match over'
-            : yourTurn
-              ? view.phase === 'opening'
-                ? 'Opening round — place a number card on an empty caravan'
-                : activeCard
-                  ? targets.size > 0
-                    ? `${targets.size} legal destination${targets.size === 1 ? '' : 's'}`
-                    : 'Nowhere legal to play that one'
-                  : 'Your move — pick a card'
-              : 'Waiting for opponent…'}
-        </p>
+        <p className={`turn ${yourTurn ? 'yours' : ''}`}>{turnText}</p>
 
         <div className="hand">
           {hand.map((card, i) => (
@@ -316,7 +323,7 @@ export function Board({
               className={`hand-card ${selected === card.id ? 'selected' : ''} ${
                 drag?.cardId === card.id ? 'lifted' : ''
               } ${yourTurn && !targetsByCard.has(card.id) ? 'unplayable' : ''}`}
-              style={{ '--a': `${fanAngle(i, hand.length)}deg`, '--z': i } as never}
+              style={{ '--i': i, '--gaps': Math.max(hand.length - 1, 1) } as never}
               disabled={!yourTurn}
               aria-pressed={selected === card.id}
               {...handlers(card.id)}
@@ -327,37 +334,47 @@ export function Board({
           {hand.length === 0 && <span className="empty-hand">no cards left</span>}
         </div>
 
-        <div className="actions">
-          {selectedCard ? (
-            <>
-              <button
-                type="button"
-                className="danger"
-                disabled={!canDiscard}
-                onClick={() => fire({ type: 'discard', cardId: selectedCard.id })}
-              >
-                Discard
-              </button>
-              <button type="button" onClick={() => setSelected(null)}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <span className="hint">
-              {view.players[you].deckCount} card
-              {view.players[you].deckCount === 1 ? '' : 's'} left in your deck
-            </span>
-          )}
+        {/* Discarding is a pile to drop on (or tap, with a card selected)
+            rather than a button that appears, so the rail never changes shape. */}
+        <div className="rail-row">
+          <button
+            type="button"
+            className={`discard-pile ${activeDiscardable ? 'target' : ''} ${
+              drag?.over === DISCARD_KEY ? 'drag-over' : ''
+            }`}
+            data-drop={DISCARD_KEY}
+            disabled={!canDiscard}
+            title="Discard the selected card. You draw a replacement."
+            onClick={() => selectedCard && fire({ type: 'discard', cardId: selectedCard.id })}
+          >
+            Discard
+          </button>
+          <Pile who="You" deck={view.players[you].deckCount} />
         </div>
       </aside>
 
+      {/* The session panel, laid over the table on demand. A tap anywhere
+          outside it closes it again. */}
+      {menuOpen && (
+        <div className="menu-sheet" onClick={() => setMenuOpen(false)}>
+          <div className="menu-body" onClick={(e) => e.stopPropagation()}>
+            {panel}
+            <button type="button" className="menu-close" onClick={() => setMenuOpen(false)}>
+              Back to the table
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* The dragged card, following the pointer. Rendered outside the hand so
           nothing clips it, and inert so it never wins the hit test under the
-          cursor — which is how the drop target beneath it is found. */}
+          finger — which is how the drop target beneath it is found. The finger's
+          position is in screen terms, so it is mapped into the page's own frame
+          for when the page is turned (see rotation.ts). */}
       {drag && draggedCard && (
         <div
           className={`drag-ghost ${drag.over ? 'over' : ''}`}
-          style={{ left: drag.x, top: drag.y }}
+          style={toPageFrame(boardRef.current, drag.x, drag.y)}
           aria-hidden="true"
         >
           <PlayingCard card={draggedCard} size="large" />
@@ -368,12 +385,30 @@ export function Board({
 }
 
 /**
+ * A face-down pile and the count on it. The opponent's also carries how many
+ * cards they hold, as "+N" — the hand itself is redacted.
+ */
+function Pile({ who, deck, hand }: { who: string; deck: number; hand?: number }) {
+  const label =
+    hand === undefined
+      ? `${who}: ${deck} in deck`
+      : `${who}: ${deck} in deck, ${hand} in hand`;
+  return (
+    <div className="pile" role="img" aria-label={label} title={label}>
+      <span className="pile-who">{who}</span>
+      <span className="pile-n">{deck}</span>
+      {hand !== undefined && <span className="pile-hand">+{hand}</span>}
+    </div>
+  );
+}
+
+/**
  * The centre line for one track: both caravans' totals facing each other across
- * the track's own state, so the comparison the whole game turns on reads in one
- * place and neither player's cards have to carry a header.
+ * it, so the comparison the whole game turns on reads in one place and neither
+ * player's cards have to carry a header. Whether the track has been decided is
+ * carried as a class, which tints the line.
  */
 function Gauge({
-  index,
   opponent,
   yours,
   opponentStatus,
@@ -383,7 +418,6 @@ function Gauge({
   canDisband,
   onDisband,
 }: {
-  index: number;
   opponent: RedactedCaravan;
   yours: RedactedCaravan;
   opponentStatus: CaravanStatus;
@@ -400,30 +434,20 @@ function Gauge({
     : track.reason === 'tie'
       ? 'tied'
       : 'open';
-  const label = track.decided
-    ? track.winner === you
-      ? 'sold to you'
-      : 'sold to them'
-    : track.reason === 'tie'
-      ? 'tied'
-      : 'open';
 
   return (
-    <div className="gauge">
+    <div className={`gauge track-${state}`}>
       <Total caravan={opponent} status={opponentStatus} />
-      <div className={`track ${state}`}>
-        <span className="n">{index + 1}</span>
-        {label}
-      </div>
       <Total caravan={yours} status={yourStatus}>
         {canDisband && (
           <button
             type="button"
             className="disband"
             title="Discard this whole caravan. You do not draw a card."
+            aria-label="Disband this caravan"
             onClick={onDisband}
           >
-            disband
+            <span aria-hidden="true">✕</span>
           </button>
         )}
       </Total>

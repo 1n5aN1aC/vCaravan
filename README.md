@@ -101,27 +101,30 @@ highlight moves the host rejects.
 
 ## The table
 
-The board is laid out as cards on a table rather than as rows of form controls.
-Each of the three tracks is a column, and both players build **outward from a
+The board is built for one shape: a phone held sideways. Held upright — with
+rotation lock on, say — the whole page is drawn sideways and turned, so the
+player turns the phone to play. It is laid out as
+cards on a table rather than as rows of form controls, and the whole match fits
+one screen without scrolling. Each of the three tracks is a column, and both players build **outward from a
 shared centre line**: the first card of a caravan sits against the middle, and
 the newest — the one that decides what may legally follow — is the fully visible
 card at the far end. The two totals face each other across the track they are
-contesting. Your hand is fanned beside the table, the opponent's fanned face
-down above it — every hidden card wears a randomly chosen casino back, and when
-they spend one, one back leaves the fan. Face cards played onto a number card
-lie over it, offset far enough to leave the number readable.
+contesting. Beside the tracks is a rail: the opponent's pile, showing their deck
+and how many cards they hold, then your hand lying flat, then a discard pile and
+your own deck. The session controls sit behind a Menu button. Face cards played
+onto a number card lie over it, offset far enough to leave the number readable.
 
-A card is played either by clicking it and then clicking its destination, or by
-dragging it there. Both routes ask `listLegalMoves` for that card's destinations
+A card is played either by tapping it and then tapping its destination, or by
+dragging it there. Discarding is the same: drop the card on the discard pile, or
+tap it with the card selected. Both routes ask `listLegalMoves` for that card's destinations
 and light exactly those, so the highlighting *is* the rules — which makes the UI
 the clearest available explanation of Caravan's placement rules.
 
 All theming lives in `apps/web/src/styles.css`; the components carry no styling
-decisions, so the look can be replaced without touching a `.tsx`. Two numbers
-have to be shared with the components because they depend on how many cards are
-actually on the table, which CSS cannot work out — how tightly a caravan packs
-as it grows, and how far the hand fans. Both live in
-[`apps/web/src/layout.ts`](apps/web/src/layout.ts).
+decisions, so the look can be replaced without touching a `.tsx`. One number has
+to be shared with the components because it depends on how many cards are
+actually on the table, which CSS cannot work out: how tightly a caravan packs as
+it grows. It lives in [`apps/web/src/layout.ts`](apps/web/src/layout.ts).
 
 [`apps/web/UI.md`](apps/web/UI.md) is the orientation guide for changing any of
 this: what each file owns, and the traps worth knowing before editing.

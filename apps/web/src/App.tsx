@@ -21,12 +21,13 @@ import { sound } from './sound.js';
 import { ambience, music } from './music.js';
 
 /**
- * Landing page, board, and the connection chrome around both.
+ * Landing page, board, and the connection chrome around both. Built for one
+ * shape only: a phone held sideways.
  *
  * Everything that is *about* the session rather than the game — title, code,
- * seats, turn counter, errors, the leave button — is packed into one box that
- * rides at the top of the hand column, so the table has the window's full width
- * and height to itself.
+ * seats, turn counter, errors, the leave button — is packed into one panel. On
+ * the start page it heads the screen; during a match it sits behind the board's
+ * Menu button, so the table has the whole screen to itself.
  */
 /** `client` is for tests, which hand in one wired to an in-memory network. */
 export function App({ client: given }: { client?: CaravanClient } = {}) {
@@ -78,8 +79,8 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
     client.submitDeck(buildPool(state.seat!, state.mode).map((card) => card.id));
   }, [client, seated, buildable, mySubmitted, showBoard, state.seat, state.mode]);
 
-  // Handed to the Board so it can sit above the hand. With no board to host it —
-  // the landing page — it stands on its own instead.
+  // Handed to the Board, which shows it behind its Menu button. With no board to
+  // host it — the landing page — it stands on its own instead.
   const panel = (
     <section className="panel">
       <h1>vCaravan</h1>
@@ -113,7 +114,9 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
   );
 
   return (
-    <main>
+    // `playing` pins the table to exactly one screen; the other pages scroll
+    // if they have to.
+    <main className={showBoard ? 'playing' : undefined}>
       {showBoard ? (
         <Board
           view={state.match!}

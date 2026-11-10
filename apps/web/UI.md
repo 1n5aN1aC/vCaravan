@@ -2,6 +2,12 @@
 
 Orientation for changing the board. Read this instead of reading the CSS.
 
+**There is one layout: a phone held sideways.** There is no desktop or upright
+version. A bigger screen gets the same layout with bigger cards, because card
+size comes from the screen's height. An upright phone — rotation lock on, or
+just not turned yet — gets the same layout drawn sideways and turned a quarter,
+so the player turns the phone to play.
+
 The one rule that shapes everything: **all theming lives in `src/styles.css`**,
 and components carry no styling decisions. Anything that looks like a design
 choice belongs there. The exception is the handful of numbers that depend on how
@@ -14,36 +20,35 @@ many cards are actually on the table, which CSS cannot compute — those live in
 |---|---|
 | `src/App.tsx` | Landing page, new-table options, the session panel, the result overlay, connection state |
 | `src/DeckBuilder.tsx` | Trimming the table's card pool down before the deal |
-| `src/Board.tsx` | The table: columns, caravans, centre line, the hand |
+| `src/Board.tsx` | The table: columns, caravans, centre line, and the rail (piles, hand, discard, Menu) |
 | `src/PlayingCard.tsx` | One card face — supplied art, or a face drawn in CSS |
 | `src/cardArt.ts` | Matching image files to cards at build time |
 | `src/layout.ts` | The numbers CSS cannot work out for itself |
+| `src/rotation.ts` | Placing the dragged card when the page is turned |
 | `src/useCardDrag.ts` | Drag-to-play, on pointer events |
 | `src/useDepartures.ts` | Keeping destroyed cards alive long enough to animate out |
-| `src/useOpponentHand.ts` | Inventing a stable face-down stand-in for the redacted hand |
 | `src/sound.ts` | Loading sound files, the random take, the mute setting |
 | `src/useSoundCues.ts` | Deciding which sound a snapshot means |
 | `src/styles.css` | Everything else |
 
 ## The layout
 
-`.board` is a grid of three areas — `panel`, `hand`, `table`:
+`main.playing` (set while a match is on screen) pins the page to exactly one
+screen with no scrolling. `.board` is two columns, both the full height: the
+three tracks, and a rail.
 
 ```
-desktop (> 68rem)     narrow (≤ 68rem)
-panel  table          panel
-hand   table          table
-                      hand
+tracks                 rail
+[ ] [ ] [ ]            [opponent pile]        [Menu]
+theirs / yours ×3
+[ ] [ ] [ ]            turn line
+                       [hand, flat, overlapping]
+                       [Discard]              [your pile]
 ```
 
-Both columns are sized to their contents and the pair is centred
-(`justify-content: center`), so spare width collects *outside* the pair. The gap
-between hand and table is fixed. Sizing either column with `1fr` puts the slack
-between them instead, which reads as a hole down the middle of the felt — that
-was a real bug, don't reintroduce it.
-
-**Document order is `panel`, `table`, `hand`** — the single-column order — so the
-narrow layout's DOM matches its visual order. Desktop placement is by grid area.
+The rail is exactly as wide as a full eight-card hand at its loosest spacing
+(`card-lw × 5.1`), and the pair is spread with `space-evenly`, so spare width
+collects round the pair rather than as a gap inside the rail.
 
 Inside the table, each of the three tracks is a `.column`, holding an opponent
 `.caravan`, a `.gauge`, and your `.caravan`. A caravan is a fixed-height box
@@ -53,23 +58,48 @@ Inside the table, each of the three tracks is a `.column`, holding an opponent
 middle and the newest — the one that decides what may legally follow — is fully
 visible at the far end.
 
-The `.gauge` between them carries both totals and the track state. Caravans have
-no header of their own.
+The `.gauge` between them is two lines, their total over yours, with the ✕ that
+disbands yours. A decided track tints the gauge (`.track-won`, `.track-lost`).
+Caravans have no header of their own.
 
-The hand column holds the opponent's hand too — `.opp-hand`, a fan of face-down
-cards above your own fan. The cards themselves are redacted (the snapshot only
-carries `handCount`), so `useOpponentHand.ts` invents stable stand-ins: each
-held card gets a persistent key and a randomly chosen back, and when the
-opponent spends a card, one *specific* back leaves rather than the whole fan
-reshuffling. Which one is random — the client genuinely does not know which
-card left. The subtle part is detecting the spend at all: a play is usually
-followed by a draw in the same snapshot, so `handCount` often does not move;
-the hook infers spends from `hand + deck` dropping (nothing else moves cards
-out of that pool) and draws from the hand count then recovering. The count is
-still authoritative — a snapshot the arithmetic cannot explain converges to it
-rather than drifting. `.opp-hand` fans with the same per-card angle as `.hand`
-but pivots from *above* (`transform-origin: 50% -220%`), so it arcs the way the
-back of a hand held across the table actually reads.
+The opponent's hand is redacted (the snapshot carries only `handCount`), so it
+is shown as a count — the `+N` on their pile — not as cards. The session panel
+(code, seats, connection, Leave, audio) sits behind the Menu button, in
+`.menu-sheet`; on the start page it stands on its own instead.
+
+**Height is the limit.** At about 390px tall, both halves and the centre line
+have to fit, so `--card-h` is worked out from the screen height on `:root`, and
+caravans pack into `STACK_ROWS` (1.9) card-heights each — a long caravan shows
+little more than each card's corner index. The start page, table options and
+deck builder are tightened for a short screen too, and scroll if they still do
+not fit.
+
+## Upright phones: the page is turned
+
+Safari gives a web page no way to lock orientation, even one added to the Home
+Screen. So under `@media (orientation: portrait)` the whole page — start page,
+deck builder, table, Menu — is drawn at the screen's height × width and turned
+90° clockwise. Its top faces the screen's right edge; the player turns the
+phone to their left.
+
+- **`main` is the page.** It is `position: fixed`, exactly one screen, and
+  scrolls inside itself when its content does not fit (the deck builder). The
+  document never scrolls. A turned element can scroll; a turned document
+  cannot.
+- **`--app-w` / `--app-h` swap** on `:root` when upright, and card size is
+  worked out from them, so it follows the turned page automatically.
+- **A transformed element is the containing block for `position: fixed`
+  inside it.** The Menu sheet and result banner turn with the page for free.
+  The dragged card needs the finger's screen position mapped into the turned
+  frame (`toPageFrame` in `rotation.ts`). Hit testing needs no mapping:
+  `elementFromPoint` works on what is drawn.
+- **Safe areas turn too.** The screen's top (the notch) becomes the page's
+  left, so `main` swaps its four `env(safe-area-inset-*)` values round.
+- **System UI does not turn.** The keyboard for the room-code field, and any
+  native popup, still appears upright.
+
+`ROTATED_QUERY` in `rotation.ts` and the `@media` query in `styles.css` must
+match.
 
 ## Interaction
 
@@ -81,12 +111,17 @@ Destinations are identified by a **drop key** in a `data-drop` attribute:
 
 - `c:<seat>:<caravan>` — append to a caravan (number cards)
 - `s:<seat>:<caravan>:<slot>` — attach to one card (face cards)
+- `discard` — the discard pile
+
+The discard pile is kept out of `targetsByCard`, in a set of its own: nearly
+every card can be discarded, so folding it in would mark every card playable.
 
 Both a caravan and the cards inside it carry keys, so they nest. The hit test in
 `useCardDrag.ts` walks **outward** from the deepest one and takes the first key
 that is a legal destination for the held card. That is what lets a face card
 land on the exact card under the pointer while a number card dropped on the same
-spot falls through to "append to this caravan".
+spot falls through to "append to this caravan". The dragged card is drawn above
+the finger rather than under it, so the finger does not hide it.
 
 Dragging is built on pointer events, not HTML5 drag-and-drop — the only way to
 get mouse and touch on one path, and it keeps the dragged card an ordinary
@@ -100,10 +135,10 @@ In `:root` (`styles.css`):
 
 | Property | Meaning |
 |---|---|
-| `--card-w` / `--card-h` | Cards on the table |
-| `--card-lw` / `--card-lh` | Cards in hand (slightly larger) |
-| `--caravan-w` | Column width, currently `card-w × 1.75` |
-| `--fan-w` | Width reserved for the fanned hand |
+| `--card-h` | Card height, from the screen height (and capped by its width) |
+| `--card-w` | Card width, from `--card-h` |
+| `--card-lw` / `--card-lh` | Cards in hand (5% larger) |
+| `--caravan-w` | Column width, currently `card-w × 1.6` |
 | `--slide` | The deal animation |
 | `--restack` | A caravan closing the gap after a destroyed card has gone |
 
@@ -114,11 +149,9 @@ In `layout.ts`:
 | `STACK_ROWS` | Height of one player's half, in card heights. Fed to CSS as `--rows`. |
 | `MAX_OVERLAP` | Loosest spacing between cards in a caravan |
 | `overlapStep(n)` | Tightens spacing as a caravan grows so a long one cannot run off the table. Fed to CSS as `--step`. |
-| `FAN_STEP_DEG` | Degrees between neighbouring cards in the hand |
-| `fanAngle(i, n)` | Per-card rotation. Fed to CSS as `--a`. |
 
-Per-element custom properties: `--i` (slot index), `--ai` (attachment index),
-`--a` / `--z` (hand card angle and stacking).
+Per-element custom properties: `--i` (slot index, or hand position), `--ai`
+(attachment index), `--gaps` (spaces between hand cards).
 
 ## Traps
 
@@ -146,10 +179,11 @@ claims the animation.** That is why `.slot.struck` has keyframes at all despite
 barely moving: without them a card would fly *in* from off-screen purely to be
 destroyed. Same reason `.attached-card.settled` exists.
 
-**4. `--fan-w` must be at least the fan's real span** for a full eight-card
-opening hand. It is not derived — it depends on `FAN_STEP_DEG`, the hand card
-size and the pivot in `.hand-card`. Too small and the fan overflows and raises a
-horizontal scrollbar. Measure after changing any of those.
+**4. The height budget is shared.** `--card-h` reserves 4.4rem for the gauge
+and the page edges, and divides the rest by 3.9 (two halves of `STACK_ROWS` plus
+a little slack). Make the gauge taller, raise `STACK_ROWS`, or add padding, and
+the table runs off the bottom of a phone. Change them together and measure at
+about 844×390.
 
 **5. Disabled buttons swallow clicks entirely.** A card that is not itself a
 destination must not intercept the gesture, or clicking the pile to extend it
@@ -376,5 +410,6 @@ one-liner.
   lift, and the result overlay. Written and type-checked, never looked at.
 - **`plan.txt` still describes the move log** (lines 274, 358, 450), which no
   longer exists.
-- **The narrow layout is functional, not designed.** It stacks and shrinks; it
-  has not had a real pass.
+- **Scrolling the turned deck builder by touch is unverified.** It scrolls in
+  the browser's phone emulation; whether a swipe on a real iPhone scrolls it in
+  the direction the player expects has not been checked.

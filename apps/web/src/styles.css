@@ -1,7 +1,10 @@
 /*
- * Casino card table. All theming lives in this one file — component structure
- * carries no styling decisions, so the whole look can be swapped without
- * touching a single .tsx.
+ * Casino card table, built for one shape: a phone held sideways. There is no
+ * desktop or upright layout — a bigger screen just gets bigger cards, because
+ * everything is sized from the screen's height.
+ *
+ * All theming lives in this one file — component structure carries no styling
+ * decisions, so the whole look can be swapped without touching a single .tsx.
  */
 
 :root {
@@ -20,22 +23,30 @@
   --black: #16181c;
   --danger: #d4574f;
 
-  /* Cards on the table, and the larger ones held in hand. Everything that has
-     to line up with a card — stack heights, overlap, the fan — is expressed in
-     these, so resizing the deck is a two-line change. */
-  --card-w: 6.4rem;
-  --card-h: 9rem;
-  --card-lw: 6.9rem;
-  --card-lh: 9.7rem;
+  /* The screen. `dvh` is the height actually visible, with the browser's own
+     bars taken off; `vh` stands in where it is not supported. */
+  --app-w: 100vw;
+  --app-h: 100vh;
+
+  /*
+   * Cards on the table, and the slightly larger ones held in hand. Height is
+   * what a sideways phone runs out of, so the card is sized from it: two
+   * halves of `STACK_ROWS` (1.9) card-heights each, plus the centre line and
+   * the edges, have to fit the screen. Capped by width too, for a screen that
+   * is short *and* narrow. Everything that has to line up with a card — stack
+   * heights, overlap, the hand — is expressed in these.
+   */
+  --card-h: min(
+    calc((var(--app-h) - 4.4rem) / 3.9),
+    calc((var(--app-w) - 9rem) / 7)
+  );
+  --card-w: calc(var(--card-h) * 0.711);
+  --card-lw: calc(var(--card-w) * 1.05);
+  --card-lh: calc(var(--card-h) * 1.05);
 
   /* A caravan column: the card itself, plus the strip beside it where attached
      face cards fan out. */
-  --caravan-w: calc(var(--card-w) * 1.75);
-  /* The exact span of a full eight-card opening hand at `FAN_STEP_DEG`. The
-     track is pinned to the right edge of the window, so sizing it to the fan
-     means the outermost card lands flush against that edge — any narrower and
-     the fan spills out and raises a horizontal scrollbar. */
-  --fan-w: 29rem;
+  --caravan-w: calc(var(--card-w) * 1.6);
 
   --radius: 0.35rem;
 
@@ -44,6 +55,24 @@
 
   font-family: 'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
   color-scheme: dark;
+}
+@supports (height: 100dvh) {
+  :root { --app-w: 100dvw; --app-h: 100dvh; }
+}
+
+/*
+ * A phone held upright — rotation lock on, or simply not turned yet. The whole
+ * page is drawn sideways and turned a quarter clockwise (see `main` below), so
+ * the page's own width is the screen's height and its height the screen's
+ * width. Everything sized from `--app-w`/`--app-h` follows.
+ *
+ * `ROTATED_QUERY` in rotation.ts must stay the same as this query.
+ */
+@media (orientation: portrait) {
+  :root { --app-w: 100vh; --app-h: 100vw; }
+  @supports (height: 100dvh) {
+    :root { --app-w: 100dvh; --app-h: 100vw; }
+  }
 }
 
 * { box-sizing: border-box; }
@@ -57,26 +86,92 @@ body {
     var(--felt);
 }
 
+/*
+ * The page itself is `main`, pinned to exactly one screen, and anything that
+ * does not fit — the deck builder's 54 cards — scrolls inside it rather than
+ * the document scrolling. That is what lets the whole page be turned for an
+ * upright phone: a turned element can scroll, but a turned document cannot.
+ * It also stops iOS sliding the table up and down as its address bar hides
+ * and shows.
+ */
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  min-height: 0;
+}
+
+/* Clear of the notch and the home bar, which on a phone held sideways are the
+   left and right edges and the bottom (`viewport-fit=cover` in index.html is
+   what lets the page reach under them at all). */
 main {
+  --pad-top: env(safe-area-inset-top);
+  --pad-right: env(safe-area-inset-right);
+  --pad-bottom: env(safe-area-inset-bottom);
+  --pad-left: env(safe-area-inset-left);
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--app-w);
+  height: var(--app-h);
   min-width: 0;
-  /* Even on both sides, so the board's own centring is not thrown off. Kept
-     tight because the fan wants nearly all the width it can get. */
-  padding: 1rem 0.75rem 3rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding:
+    max(0.5rem, var(--pad-top))
+    max(0.75rem, var(--pad-right))
+    max(0.75rem, var(--pad-bottom))
+    max(0.75rem, var(--pad-left));
+}
+
+/* During a match nothing scrolls: the table is built to fit. */
+main.playing {
+  overflow: hidden;
+  padding:
+    max(0.4rem, var(--pad-top))
+    max(0.5rem, var(--pad-right))
+    max(0.4rem, var(--pad-bottom))
+    max(0.5rem, var(--pad-left));
+}
+
+/*
+ * Upright: turned a quarter clockwise, so the page's top faces the screen's
+ * right edge and the player turns the phone to their left to read it. Turned
+ * about its top-left corner it would swing off the left of the screen, so it
+ * is first moved one screen-width right.
+ *
+ * A turned element is the containing block for `position: fixed` inside it, so
+ * the Menu sheet and result banner turn with the page. The dragged card does
+ * too, which is why its position is mapped into this frame in Board.tsx.
+ *
+ * The safe areas turn as well: the screen's top (the notch) is now the page's
+ * left, and the screen's bottom (the home bar) its right.
+ */
+@media (orientation: portrait) {
+  main {
+    transform-origin: 0 0;
+    transform: translateX(100vw) rotate(90deg);
+    --pad-top: env(safe-area-inset-right);
+    --pad-right: env(safe-area-inset-bottom);
+    --pad-bottom: env(safe-area-inset-left);
+    --pad-left: env(safe-area-inset-top);
+  }
 }
 
 /* -- session panel ----------------------------------------------------- */
 
 /*
- * Everything about the session, in one box at the top of the hand column. It
- * wraps rather than being laid out row by row, so it stays a compact bar no
- * matter which of its parts are present.
+ * Everything about the session, in one box: at the top of the start page, and
+ * behind the Menu button during a match. It wraps rather than being laid out
+ * row by row, so it stays a compact bar no matter which of its parts are
+ * present.
  */
 .panel {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem 0.85rem;
-  max-width: var(--fan-w);
+  max-width: 26rem;
   padding: 0.55rem 0.8rem;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(0, 0, 0, 0.38);
@@ -203,8 +298,8 @@ input {
   gap: 1rem;
   align-items: center;
   justify-content: center;
-  margin: 4rem auto;
-  padding: 2rem;
+  margin: 1.5rem auto;
+  padding: 1.5rem;
   max-width: 34rem;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(0, 0, 0, 0.35);
@@ -215,23 +310,28 @@ input {
 .landing .or { color: var(--ink-dim); font-size: 0.8rem; }
 
 /*
- * The new-table options, standing in the same place the landing box did — same
- * card, stacked instead of in a row, since these are choices to read rather than
- * one button to hit. Radios need the global `input` rule (sized and letter-
- * spaced for the four-letter room code) undone.
+ * The new-table options, standing in the same place the landing box did. The
+ * groups sit side by side rather than stacked — stacked, they are far taller
+ * than a sideways phone — with the heading and buttons across the full width.
+ * Radios need the global `input` rule (sized and letter-spaced for the
+ * four-letter room code) undone.
  */
 .options {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  margin: 4rem auto;
-  padding: 1.6rem 2rem 1.8rem;
-  max-width: 26rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  align-items: start;
+  gap: 0.6rem;
+  margin: 0 auto;
+  padding: 0.7rem 1rem 0.8rem;
+  max-width: 48rem;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(0, 0, 0, 0.35);
   border-radius: 0.6rem;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
+
+.options h2,
+.option-actions { grid-column: 1 / -1; }
 
 .options h2 {
   margin: 0;
@@ -297,8 +397,8 @@ input {
  * about a card's own rendering changes here, only the button around it.
  */
 .deckbuilder {
-  margin: 1.5rem auto;
-  padding: 1.2rem 1.4rem 1.6rem;
+  margin: 0.75rem auto;
+  padding: 0.8rem 1rem 1.2rem;
   max-width: 64rem;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(0, 0, 0, 0.35);
@@ -347,7 +447,7 @@ input {
 .deck-card:disabled { cursor: default; }
 
 .deck-waiting {
-  margin: 4rem auto;
+  margin: 1.5rem auto;
   padding: 1.5rem 2rem;
   max-width: 28rem;
   text-align: center;
@@ -398,62 +498,31 @@ input {
 
 /* -- table ------------------------------------------------------------- */
 
-/* Panel over hand on the left, table on the right, and the pair centred as one
-   block. Both columns are sized to their contents so the gap between them is
-   always the same 1.5rem — spare width collects outside the pair rather than
-   opening a hole between the hand and the caravans. */
+/*
+ * Two columns, both the full height of the screen: the three tracks on the
+ * left, and a rail on the right. The rail is as wide as a full eight-card hand
+ * at its loosest spacing (see `.hand-card`), so on a wide screen the spare
+ * width is shared out round the pair rather than leaving the hand stranded at
+ * one end of a long rail.
+ */
 .board {
   display: grid;
-  grid-template-columns: var(--fan-w) auto;
-  grid-template-areas:
-    'panel table'
-    'hand  table';
-  grid-template-rows: auto auto;
-  justify-content: center;
-  gap: 0.6rem 1.5rem;
-  align-items: start;
-}
-
-.board > .panel { grid-area: panel; }
-.hand-area { grid-area: hand; }
-
-.table {
-  grid-area: table;
-  min-width: 0;
-}
-
-.table-head {
-  display: flex;
-  flex-wrap: wrap;
+  height: 100%;
+  grid-template-columns: auto minmax(0, calc(var(--card-lw) * 5.1));
+  grid-template-rows: 100%;
+  justify-content: space-evenly;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
+  gap: 0 1rem;
 }
-.table-head .who { color: var(--ink); }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-weight: 400;
-  letter-spacing: 0.06em;
-  padding: 0.1rem 0.5rem;
-  border-radius: 1rem;
-  background: rgba(0, 0, 0, 0.28);
-}
+.table { min-width: 0; }
 
 /* One column per track, each a mirrored pair of caravans meeting in the middle.
-   A caravan is one card wide plus room for the face cards fanned beside it, so
-   the columns stay tight and the hand gets the rest of the window. */
+   A caravan is one card wide plus room for the face cards fanned beside it. */
 .columns {
   display: grid;
   grid-template-columns: repeat(3, var(--caravan-w));
-  gap: 0.85rem;
+  gap: 0.45rem;
 }
 
 .column { display: flex; flex-direction: column; min-width: 0; }
@@ -663,24 +732,28 @@ input {
 
 /* -- centre line ------------------------------------------------------- */
 
-/* The two totals face each other across the track they are contesting, so the
-   comparison the game turns on reads in one place. */
+/* The two totals face each other across the track they are contesting — theirs
+   above, yours below — so the comparison the game turns on reads in one place.
+   A decided track is tinted its winner's colour. */
 .gauge {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.4rem 0;
+  padding: 0.2rem 0.3rem;
+  border-radius: var(--radius);
 }
+.gauge.track-won { background: rgba(111, 208, 140, 0.12); }
+.gauge.track-lost { background: rgba(212, 87, 79, 0.14); }
 
 .total {
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.8rem;
+  gap: 0.25rem;
+  min-height: 1.25rem;
+  font-size: 0.7rem;
   color: var(--ink-dim);
 }
-.total .value { font-size: 1.2rem; font-weight: 700; color: var(--ink); }
-.total .dir { font-size: 0.8rem; }
+.total .value { font-size: 1rem; font-weight: 700; color: var(--ink); }
+.total .dir { font-size: 0.7rem; }
 
 .total.status-sold .value { color: #6fd08c; }
 .total.status-outbid .value { color: var(--gold); }
@@ -688,7 +761,7 @@ input {
 .total.status-overburdened .value { color: var(--danger); }
 
 .badge {
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   cursor: help;
@@ -700,35 +773,13 @@ input {
 
 .disband {
   margin-left: auto;
+  align-self: center;
   font-size: 0.6rem;
-  padding: 0.1rem 0.4rem;
+  line-height: 1;
+  padding: 0.18rem 0.3rem;
+  background: linear-gradient(#8d3b36, #6d2b27);
+  border-color: #4a1c19;
 }
-
-.track {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 0.18rem 0.5rem;
-  border-radius: 1rem;
-  background: rgba(0, 0, 0, 0.32);
-  color: var(--ink-dim);
-}
-.track .n {
-  display: grid;
-  place-items: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  font-size: 0.62rem;
-}
-.track.won { color: #6fd08c; }
-.track.lost { color: var(--danger); }
-.track.tied { color: #9aa2e0; }
-
 
 /* -- card faces -------------------------------------------------------- */
 
@@ -819,151 +870,151 @@ input {
   font-weight: 700;
 }
 
-.caravan footer {
-  display: flex;
-  gap: 0.35rem;
-  align-items: center;
-  margin-top: 0.4rem;
-  min-height: 1.6rem;
-}
-.drop {
-  flex: 1;
-  font-size: 0.65rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: none;
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  box-shadow: none;
-  color: var(--gold);
-  padding: 0.25rem;
-}
-.drop.target { border-color: var(--gold); border-style: solid; }
-.drop:disabled { opacity: 0.25; }
-.disband { font-size: 0.62rem; padding: 0.2rem 0.5rem; }
+/* -- rail -------------------------------------------------------------- */
 
-/* -- opponent's hand ---------------------------------------------------- */
-
-/*
- * The opponent's held cards, face down above your own fan. Same construction as
- * `.hand` — one shared position, one rotation per card — but the pivot sits
- * *above* the fan, so the cards splay the other way: highest at the edges,
- * dipping in the middle, the way the back of a hand held across the table
- * actually reads.
- */
-/* Face-down cards are the same size as the held hand's (`--card-lw`/`--card-lh`),
-   so the two fans read as the same objects seen from opposite sides. */
-.opp-hand {
-  position: relative;
-  height: calc(var(--card-lh) * 1.08);
-}
-
-.opp-card {
-  position: absolute;
-  top: 0.4rem;
-  left: 50%;
-  margin-left: calc(var(--card-lw) / -2);
-  transform-origin: 50% -220%;
-  transform: rotate(var(--a));
-  z-index: var(--z);
-  /* Survivors slide into their new fan positions when one card leaves. */
-  transition: transform 260ms ease;
-}
-
-.opp-card .card-back {
-  display: block;
-  width: var(--card-lw);
-  height: var(--card-lh);
-  object-fit: contain;
-  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
-}
-/* Stand-in for a build with no back images bundled. */
-.opp-card .card-back.drawn {
-  border-radius: var(--radius);
-  border: 1px solid #2b1a3a;
-  background: repeating-linear-gradient(45deg, #6a3fa0 0 4px, #52307d 4px 8px);
-}
-
-/* -- hand -------------------------------------------------------------- */
-
-.hand-area {
-  align-self: start;
+/* The opponent's pile and the Menu button at the top. Everything else — the
+   turn line, your hand, the discard pile and your own — is gathered at the
+   bottom, so the hand sits just above the piles it is drawn from and
+   discarded to. */
+.rail {
+  align-self: stretch;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.rail > .rail-row:first-child { margin-bottom: auto; }
+
+.rail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
+}
+
+/* A face-down pile with its count on it. The opponent's also carries "+N",
+   the cards in their hand. */
+.pile {
+  position: relative;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  width: calc(var(--card-w) * 0.95);
+  height: calc(var(--card-h) * 0.72);
+  border-radius: var(--radius);
+  border: 1px solid #2b1a3a;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)),
+    repeating-linear-gradient(45deg, #6a3fa0 0 4px, #52307d 4px 8px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45);
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.pile-who {
+  position: absolute;
+  top: 0.2rem;
+  font-size: 0.48rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.pile-n { font-size: 1.15rem; font-weight: 700; }
+.pile-hand { font-size: 0.72rem; color: var(--gold); margin-top: 0.1rem; }
+
+.menu-button {
+  font-size: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 1rem;
+}
+
+/* A pile to drop a card on, or tap with one selected. Disabled until a
+   discardable card is chosen — but the drag's hit test still finds it, so only
+   the look is dimmed. */
+.discard-pile {
+  flex: 1;
+  max-width: calc(var(--card-w) * 2);
+  height: calc(var(--card-h) * 0.72);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  box-shadow: none;
+}
+.discard-pile:disabled { opacity: 0.45; }
+.discard-pile.target {
+  opacity: 1;
+  color: var(--danger);
+  border: 1px solid rgba(212, 87, 79, 0.75);
+  background: rgba(140, 40, 35, 0.25);
+}
+.discard-pile.drag-over {
+  background: rgba(140, 40, 35, 0.5);
+  box-shadow: inset 0 0 0 2px var(--danger);
 }
 
 .turn {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .turn.yours { color: var(--gold); font-weight: 600; }
 
+/* -- hand -------------------------------------------------------------- */
+
 /*
- * A held hand rather than a row of cards. Every card sits at the same place and
- * is rotated about a pivot well below the fan, so they splay left to right and
- * arc highest in the middle — the way a hand actually sits in the fingers. The
- * shape comes out of one angle per card (`fanAngle` in layout.ts); nothing is
- * positioned by hand. Move the pivot to open or close the arc.
+ * The hand lies flat: a fan's arc costs height a sideways phone does not have.
+ * Cards sit in a row, each overlapping the last, spaced to fill the rail but
+ * never wider apart than about half a card. A chosen card rises out of the row
+ * — the space above the cards is there for it to rise into.
  */
 .hand {
   position: relative;
-  flex: 1;
-  min-height: 15rem;
+  height: calc(var(--card-lh) + 1.1rem);
 }
 
 .hand-card {
   position: absolute;
-  top: 1.5rem;
-  left: 50%;
-  margin-left: calc(var(--card-lw) / -2);
-  transform-origin: 50% 300%;
-  transform: rotate(var(--a));
-  z-index: var(--z);
+  top: 1rem;
+  left: min(
+    calc(var(--i) * var(--card-lw) * 0.58),
+    calc((100% - var(--card-lw)) * var(--i) / var(--gaps))
+  );
+  z-index: var(--i);
   cursor: pointer;
   /* The browser must not claim the gesture for scrolling, or a drag across the
      page would never reach our pointermove handler. */
   touch-action: none;
   transition: transform 260ms ease, opacity 260ms ease;
 }
-.hand-card:hover:not(:disabled) {
-  transform: rotate(var(--a)) translateY(-1rem);
-  z-index: 50;
-}
 .hand-card.selected {
-  transform: rotate(var(--a)) translateY(-1.7rem);
+  transform: translateY(-0.9rem);
   z-index: 51;
 }
-/* The card being dragged is represented by the ghost under the pointer; the one
-   left in the fan just holds its place. */
+/* The card being dragged is represented by the ghost under the finger; the one
+   left in the hand just holds its place. */
 .hand-card.lifted { opacity: 0.3; }
 .hand-card.unplayable .card { opacity: 0.5; filter: saturate(0.4); }
 /* The generic disabled fade is far too heavy for a whole hand of cards — while
    it is not your turn they should read as held, not as switched off. */
-.hand-card:disabled { cursor: default; opacity: 1; filter: saturate(0.75) brightness(0.9); }
+.hand-card:disabled { cursor: default; opacity: 1; filter: saturate(0.75) brightness(0.85); }
 
 .empty-hand { color: var(--ink-dim); font-size: 0.85rem; }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  min-height: 2rem;
-}
-.hint { color: var(--ink-dim); font-size: 0.78rem; }
-
-/* The dragged card itself, following the pointer. Inert, so the hit test under
-   the cursor finds the table beneath it rather than the card. */
-/* Hung off the pointer rather than centred under it. Centred, the card covered
-   the very thing it was being aimed at; trailing down and right leaves the
-   cursor and everything above and left of it — the caravan being aimed into —
-   in clear view. */
+/* The dragged card itself, following the finger. Inert, so the hit test under
+   the finger finds the table beneath it rather than the card. Held above the
+   finger rather than under it: the finger already hides whatever it is on, so
+   the card has to be seen past it. */
 .drag-ghost {
   position: fixed;
   z-index: 900;
   pointer-events: none;
-  transform: translate(10%, 12%) rotate(-4deg) scale(1.06);
+  transform: translate(-50%, -115%) rotate(-4deg) scale(1.06);
   filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.55));
 }
 .drag-ghost.over .card { box-shadow: 0 0 0 3px var(--gold); }
@@ -973,6 +1024,28 @@ input {
 }
 .board.dragging { cursor: grabbing; }
 
+/* -- menu -------------------------------------------------------------- */
+
+/* The session panel, laid over the table on demand. */
+.menu-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+.menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: stretch;
+  max-height: 100%;
+  overflow: auto;
+}
+.menu-body .panel { background: rgba(10, 30, 20, 0.92); }
+.menu-close { align-self: center; }
 
 /* -- result ------------------------------------------------------------ */
 
@@ -985,14 +1058,14 @@ input {
 .result {
   position: fixed;
   left: 50%;
-  top: 45%;
+  top: 50%;
   z-index: 500;
   pointer-events: none;
-  padding: 1.4rem 3rem;
+  padding: 0.8rem 1.6rem;
   text-align: center;
-  font-size: 2.1rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   border-radius: 0.6rem;
   background: rgba(8, 20, 14, 0.55);
@@ -1037,44 +1110,6 @@ input {
 }
 
 .dim { color: var(--ink-dim); }
-
-/* -- responsive -------------------------------------------------------- */
-
-@media (max-width: 68rem) {
-  /* Not enough width for a table and a fanned hand side by side. One column:
-     status first, then the play area, then the hand below it — which is where a
-     horizontal fan wants to be anyway. */
-  .board {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'panel' 'table' 'hand';
-    grid-template-rows: auto auto auto;
-  }
-  .hand-area { align-self: stretch; }
-}
-
-@media (max-width: 46rem) {
-  :root {
-    --card-w: 4.2rem;
-    --card-h: 5.9rem;
-    --card-lw: 4.5rem;
-    --card-lh: 6.3rem;
-    --fan-w: 18rem;
-    /* Three full-width columns will not fit a phone, so the strip beside each
-       card narrows rather than the card itself. */
-    --caravan-w: calc(var(--card-w) * 1.6);
-  }
-  main { padding: 0.75rem; }
-  .panel { max-width: none; }
-  .meta-label { display: none; }
-  .result { font-size: 1.4rem; padding: 1rem 1.6rem; letter-spacing: 0.16em; }
-  .columns { gap: 0.4rem; }
-  .hand { min-height: 11rem; }
-  .track { font-size: 0.55rem; padding: 0.15rem 0.35rem; }
-  .total .value { font-size: 1rem; }
-  /* The face-down fan costs vertical space a phone doesn't have to spare, and
-     the "N in deck" pill above it already says how many cards they're holding. */
-  .opp-hand { display: none; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
