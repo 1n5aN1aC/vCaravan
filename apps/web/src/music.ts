@@ -7,14 +7,16 @@
  *   assets/ambience/*   one file, looped forever under everything
  *   assets/music/*      a playlist; a random track, then a random *different* one
  *
- * Each has its own remembered mute, independent of the card cues — a player who
- * wants the table quiet does not necessarily want the room quiet.
+ * Each has its own remembered mute. Over all of them sits the main sound
+ * switch (`sound` in `sound.ts`): while that is off, neither plays, and turning
+ * it back on brings back whichever of them were on before.
  *
  * Neither can start on its own. Browsers refuse audio until the page has been
  * interacted with, so the first click or keypress anywhere is what actually
  * begins playback; until then both sit armed and silent.
  */
 import { createToggle } from './audioToggle.js';
+import { sound } from './sound.js';
 
 // Vite parses these at build time, so the options have to be inline literals.
 const ambienceFiles = import.meta.glob('./assets/ambience/*.{opus,mp3,ogg,m4a,wav,webm}', {
@@ -59,7 +61,7 @@ const MUSIC_VOLUME = 0.22;
 let ambienceAudio: HTMLAudioElement | undefined;
 
 export const ambience = {
-  ...createToggle('caravan.ambience', (on) => (on ? startAmbience() : stopAmbience())),
+  ...createToggle('caravan.ambience', () => syncAmbience()),
   available: (): boolean => ambienceTrack !== undefined,
 };
 
@@ -86,7 +88,17 @@ function ensureAmbience(): HTMLAudioElement | undefined {
  * `preload.ts`.
  */
 export function primeAmbience(): void {
-  if (ambience.isEnabled()) ensureAmbience();
+  if (ambienceWanted()) ensureAmbience();
+}
+
+/** On in its own right, and not silenced by the main sound switch. */
+function ambienceWanted(): boolean {
+  return sound.isEnabled() && ambience.isEnabled();
+}
+
+function syncAmbience(): void {
+  if (ambienceWanted()) startAmbience();
+  else stopAmbience();
 }
 
 function startAmbience(): void {
@@ -107,7 +119,7 @@ let current: Track | undefined;
 const nowPlayingListeners = new Set<() => void>();
 
 export const music = {
-  ...createToggle('caravan.music', (on) => (on ? startMusic() : stopMusic())),
+  ...createToggle('caravan.music', () => syncMusic()),
   available: (): boolean => tracks.length > 0,
   /** The track playing right now, as a store the header can title itself from. */
   subscribeNowPlaying(listener: () => void): () => void {
@@ -117,7 +129,7 @@ export const music = {
   nowPlaying: (): Track | undefined => current,
   /** Skip. Silently does nothing when the music is muted or there is none. */
   next(): void {
-    if (!music.isEnabled() || tracks.length === 0) return;
+    if (!musicWanted() || tracks.length === 0) return;
     advance();
   },
 };
@@ -137,7 +149,7 @@ function advance(): void {
     // The playlist is the `ended` handler: one track finishing is what chooses
     // the next. Nothing schedules ahead, so a skip cannot double up.
     musicAudio.addEventListener('ended', () => {
-      if (music.isEnabled()) advance();
+      if (musicWanted()) advance();
     });
   }
   musicAudio.src = current.url;
@@ -154,6 +166,23 @@ function startMusic(): void {
 function stopMusic(): void {
   musicAudio?.pause();
 }
+
+/** On in its own right, and not silenced by the main sound switch. */
+function musicWanted(): boolean {
+  return sound.isEnabled() && music.isEnabled();
+}
+
+function syncMusic(): void {
+  if (musicWanted()) startMusic();
+  else stopMusic();
+}
+
+// The main switch silences both loops and, turned back on, resumes whichever
+// were on before.
+sound.subscribe(() => {
+  syncAmbience();
+  syncMusic();
+});
 
 // ---------------------------------------------------------------------------
 
@@ -176,8 +205,8 @@ let started = false;
  */
 export function startBackgroundAudio(): void {
   started = true;
-  if (ambience.isEnabled()) startAmbience();
-  if (music.isEnabled()) startMusic();
+  if (ambienceWanted()) startAmbience();
+  if (musicWanted()) startMusic();
 }
 
 // `pointerdown` rather than `click` so that pressing the music button counts as

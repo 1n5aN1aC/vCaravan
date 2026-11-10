@@ -373,23 +373,25 @@ function AudioControls() {
 }
 
 /**
- * Silences the card sounds. Hidden outright when no sound files are bundled, so
- * a build without them shows no control for something that cannot make noise.
- * The setting is remembered across sessions by the store behind it.
+ * Silences everything: card sounds, ambience and music. The ambience and music
+ * buttons beside it keep their own settings, which come back when this is
+ * turned on again. Hidden outright when the build has no audio at all, so it
+ * shows no control for something that cannot make noise. The setting is
+ * remembered across sessions by the store behind it.
  */
 function MuteToggle() {
   const enabled = useSyncExternalStore(sound.subscribe, sound.isEnabled);
-  if (!sound.available()) return null;
+  if (!sound.hasCues() && !ambience.available() && !music.available()) return null;
   return (
     <button
       type="button"
       className="mute"
       aria-pressed={!enabled}
-      title={enabled ? 'Mute card sounds' : 'Unmute card sounds'}
+      title={enabled ? 'Mute all sounds' : 'Unmute sounds'}
       onClick={() => sound.setEnabled(!enabled)}
     >
       <span aria-hidden="true">{enabled ? '🔊' : '🔇'}</span>
-      <span className="sr-only">{enabled ? 'Mute card sounds' : 'Unmute card sounds'}</span>
+      <span className="sr-only">{enabled ? 'Mute all sounds' : 'Unmute sounds'}</span>
     </button>
   );
 }
@@ -420,6 +422,8 @@ function AmbienceToggle() {
 function MusicControls() {
   const enabled = useSyncExternalStore(music.subscribe, music.isEnabled);
   const track = useSyncExternalStore(music.subscribeNowPlaying, music.nowPlaying);
+  // The main switch silences the music too, and then there is nothing to skip.
+  const soundOn = useSyncExternalStore(sound.subscribe, sound.isEnabled);
   if (!music.available()) return null;
   return (
     <>
@@ -433,7 +437,7 @@ function MusicControls() {
         <span aria-hidden="true">{enabled ? '🎵' : '🔕'}</span>
         <span className="sr-only">{enabled ? 'Mute music' : 'Unmute music'}</span>
       </button>
-      {enabled && (
+      {enabled && soundOn && (
         <button type="button" className="mute" title="Next track" onClick={() => music.next()}>
           <span aria-hidden="true">⏭️</span>
           <span className="sr-only">Next track</span>

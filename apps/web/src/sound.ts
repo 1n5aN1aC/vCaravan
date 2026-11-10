@@ -50,15 +50,15 @@ for (const list of takes.values()) list.sort();
 const VOLUME = 0.55;
 
 /**
- * Whether cues are audible, as a store `useSyncExternalStore` can read. The
- * choice is remembered, because a player who mutes the cards means it. It
- * covers the cues only — the ambience loop and the music each mute separately,
- * in `music.ts`.
+ * The main sound switch, as a store `useSyncExternalStore` can read. Off means
+ * silence: no cues, and the ambience loop and music in `music.ts` stop too
+ * (they also have their own switches, which this sits over). The choice is
+ * remembered, because a player who mutes the game means it.
  */
 export const sound = {
   ...createToggle('caravan.sound'),
   /** True when any cue has at least one file behind it. */
-  available: (): boolean => [...takes.values()].some((list) => list.length > 0),
+  hasCues: (): boolean => [...takes.values()].some((list) => list.length > 0),
 };
 
 /**

@@ -75,9 +75,10 @@ The music plays a track picked at random, then a random *different* one when
 that finishes, forever. Track names come from the filenames, with a leading
 `MUS_` and any underscores tidied away, and show in the button's tooltip.
 
-Each has its own mute in the header, independent of the card cues
-(`caravan.ambience` and `caravan.music`), plus a skip button that appears while
-the music is playing. Either folder being empty hides its own control and
+Each has its own mute in the header (`caravan.ambience` and `caravan.music`),
+plus a skip button that appears while the music is playing. The 🔊 button
+(`caravan.sound`) sits over all of them: off, it silences the card cues, the
+ambience and the music; back on, each of those returns to its own setting. Either folder being empty hides its own control and
 changes nothing else.
 
 Neither can start on its own: browsers refuse unprompted audio until the page
