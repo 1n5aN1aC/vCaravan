@@ -28,7 +28,7 @@ many cards are actually on the table, which CSS cannot compute — those live in
 | `src/useCardDrag.ts` | Drag-to-play, on pointer events |
 | `src/useDepartures.ts` | Keeping destroyed cards alive long enough to animate out |
 | `src/sound.ts` | Loading sound files, the random take, the mute setting |
-| `src/useSoundCues.ts` | Deciding which sound a snapshot means |
+| `src/useSoundCues.ts` | Deciding which sounds a move's events mean |
 | `src/styles.css` | Everything else |
 
 ## The layout
@@ -277,8 +277,8 @@ change here, in `App.tsx`, or in the host's table.
 
 The second copy of a card carries a `#2` tag on its id (`p0:AS#2`); copy one
 keeps the bare id it always had. That is what lets duplicates exist at all —
-every id stays globally unique, so React keys, `targetsByCard`, the
-`useDepartures` diff and the `useSoundCues` diff all keep working with no notion
+every id stays globally unique, so React keys, `targetsByCard`
+and the `useDepartures` diff all keep working with no notion
 of multiplicity. `cardFromId` already stripped a `#n` tag, so nothing in the
 notation layer needed teaching.
 
@@ -358,52 +358,29 @@ rather than filename: one folder per cue, however many interchangeable takes
 inside, picked at random and never twice running. Empty folders are silent, and
 the mute button in the panel hides itself when nothing is bundled.
 
-`useSoundCues.ts` has two triggers, not one, because one source cannot serve
-both seats:
+`useSoundCues.ts` plays what happened, when it happens. Every snapshot of the
+match arrives with the events that produced it (`ClientState.events`), and the
+hook turns each new batch into cues (`cuesFor`) — the same way for your moves
+and the opponent's:
 
-- **The mover hears `predict`.** `Board`'s `fire` calls it synchronously, before
-  `onMove` even reaches the link to the table. It runs the move through the same shared
-  engine used for legality (`applyMove` on `hydrateForClient(view)`) and plays
-  off *that* result. On a laggy connection this is the difference between the
-  sound landing with your click and it landing hundreds of milliseconds later
-  with the host's echo — which is what it replaced. (A host's own moves come back
-  almost instantly over its local link; a guest's cross the network both ways.)
-- **Everyone hears the snapshot diff.** The effect that watches `view` still
-  diffs consecutive snapshots, and it is the only source for the opponent's
-  moves — there is nothing to predict from for a move nobody here has chosen.
-  For the mover, it is also the fallback: `predict` advances the same
-  `previous` ref its diff reads from, so a correctly predicted move's echo
-  diffs to nothing and is not replayed, while a move that lands differently
-  than predicted (a desync — not expected, but the ref is only ever advisory)
-  is still caught and heard for real.
+- `play` → `addtotrack`, unless the played card is destroyed in the same batch
+  (a Jack takes itself off with its target, so it landed nowhere).
+- `destroy` by a Jack or Joker → `removecard`.
+- `discard` or `disband` → `addremove`, for either player.
+- `gameOver` with a winner → `win` or `lose`, after the move's own cue. A draw
+  is silent.
 
-One cue per direction, not one per card: a Joker clearing three cards is one
-`removecard`, and a move that both attaches and destroys fires both. The
-bookends ride the same two paths — `startgame` on the first snapshot (nothing to
-predict a board arriving from); `win`/`lose` from whichever trigger notices the
-result first, `predict` if the deciding move was this seat's own, the diff
-otherwise, always after that move's own cue rather than in place of it.
+One cue of each kind per batch, not one per card: a Joker clearing three cards
+is one `removecard`.
 
-`removecard` means a Jack or a Joker took the card — against its owner's will.
-A voluntary discard or disband is `addremove` instead, and `predict` is the only
-place that can tell them apart: it branches on `move.type` directly rather than
-diffing the table, since a discard never touches the table (nothing to diff)
-and a disband's removal would otherwise look identical to a Jack's. This is also
-why an opponent's disband still plays as `removecard` — the diff has no move to
-read, only card ids that disappeared — and an opponent's discard stays
-inaudible, matching how little the client is told about the other side's hand.
-
-Four things worth knowing before editing it. The **first snapshot sounds only
-`startgame`** — joining or reconnecting to a match in progress would otherwise
-replay every card on the board at once, and a match that has already ended would
-replay its own outcome. **A draw is silent**, having no side to congratulate.
-**`predict` never throws** — a rejected `applyMove` is swallowed, since a
-prediction is advisory and the board only ever fires moves it already asked
-`listLegalMoves` for. And `play()` returns a promise in browsers but nothing
-under jsdom, so the rejection handler is attached defensively; browsers also
-refuse to play before the page has been interacted with, which is swallowed
-rather than reported — `startgame` gets away with it because clicking **Create a
-table** is that interaction.
+The **first snapshot sounds only `startgame`** — joining or reconnecting to a
+match in progress must not replay what already happened. The hook remembers
+the events it arrived with rather than a plain "mounted" flag, so React's
+development double-run of effects does not hear them as a move. `play()`
+returns a promise in browsers but nothing under jsdom, so the rejection handler
+is attached defensively; browsers also refuse to play before the page has been
+interacted with, which is swallowed rather than reported — `startgame` gets
+away with it because clicking **Create a table** is that interaction.
 
 See `src/assets/sounds/README.md` for the folder layout and the encoding
 one-liner.

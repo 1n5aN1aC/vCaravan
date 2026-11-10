@@ -1,193 +1,78 @@
 import type { RedactedState } from '@caravan/protocol';
-import { applyMove, type MatchState, type Move, type Seat } from '@caravan/rules';
-import { useCallback, useEffect, useRef } from 'react';
-import { playCue, primeSounds } from './sound.js';
+import type { GameEvent } from '@caravan/rules';
+import { useEffect, useRef } from 'react';
+import { playCue, primeSounds, type Cue } from './sound.js';
 
 /**
- * Sounds the cards. Two triggers feed the same cues:
+ * Sounds the cards. Every snapshot of the match arrives together with the
+ * events that produced it, and this plays whatever those events say happened —
+ * for either player's move, as it arrives. No guessing ahead of the table:
+ * the table runs in the browser, so the snapshot is never far behind.
  *
- * - `predict`, called synchronously the instant a move is chosen, works out its
- *   effect with the shared rules engine — the same one the board already uses
- *   for legality — and plays immediately. This is what the *acting* player
- *   hears, and it is why the sound is not at the mercy of that player's own
- *   ping: it never waits for a round trip.
- * - The effect below, which diffs consecutive snapshots the same way departures
- *   are animated (see `useDepartures`). This is what makes the *opponent's*
- *   moves audible — there is no predicting a move nobody here has seen yet —
- *   and it is also the fallback for the acting player if the server's echo
- *   ever turns out to disagree with the prediction.
- *
- * A move that both adds and removes — a Queen onto a stack a Jack then clears —
- * is heard as both, and a Joker taking three cards off the table is one
- * `removecard`, not three: cues are per direction per snapshot, not per card.
- *
- * The bookends — the board arriving, and the match being decided — come from
- * the snapshot diff (`startgame` has nothing to predict from; a result is only
- * known once the server resolves it), but a `predict`ed move that happens to
- * decide the match still plays its win/lose sting immediately, using the same
- * shared engine — *if* the way it was decided is public information. A
- * `tracks` or `turn-cap` ending is (caravan values and the ply count are never
- * redacted); a `no-legal-move` ending is not, because it can only be computed
- * by asking whether the *opponent* has a legal move, and their hand is always
- * faked empty in a locally hydrated view (see `hydrateForClient` in
- * `protocol/redact.ts`) — so exhaustion looks likely after almost any move
- * during the opening round, when disbanding isn't even legal yet to save it.
- * `predict` skips the sting for that reason and leaves it to the snapshot
- * diff, which reads the server's own state and is never fooled by it.
- *
- * `removecard` is reserved for a card taken off the table against its owner's
- * will — a Jack or a Joker. Giving one up on purpose — discarding from hand, or
- * disbanding a whole caravan — is `addremove` instead, and that distinction can
- * only be drawn from `predict`: it reads `move.type` directly, where the
- * snapshot diff only ever sees which card ids vanished, never why. That means
- * an opponent's disband is still heard as `removecard` here — the client
- * deliberately never receives the event stream that would say otherwise (see
- * `net.ts`) — and an opponent's discard, which never touches the table at all,
- * stays inaudible, same as before this cue existed.
+ * The first snapshot the board sees is the board arriving (`startgame`), not a
+ * move, so its events are not sounded — joining or reconnecting to a match in
+ * progress must not replay what already happened.
  */
-export function useSoundCues(view: RedactedState): (before: MatchState, seat: Seat, move: Move) => void {
-  const previous = useRef<Set<string> | null>(null);
-  const wasDecided = useRef(false);
+export function useSoundCues(view: RedactedState, events: readonly GameEvent[]): void {
+  // The events the board arrived with. Remembered, rather than a plain "has
+  // mounted" flag, so React's development double-run of effects does not
+  // mistake them for a move.
+  const arrival = useRef<readonly GameEvent[] | null>(null);
 
   useEffect(() => {
-    const now = tableCards(view);
-    const before = previous.current;
-    previous.current = now;
-
-    // A result already present on the first snapshot is a reconnect to a match
-    // that ended, not the match ending — so it must not sound.
-    const decided = view.result !== null;
-    const justDecided = decided && !wasDecided.current && before !== null;
-    wasDecided.current = decided;
-
-    // The first snapshot is the board arriving, not a move: joining a match in
-    // progress, or reconnecting to one, must not replay it. Priming here rather
-    // than at import time also means the files are fetched only once a match is
-    // actually on screen.
-    if (!before) {
+    if (arrival.current === null) {
+      arrival.current = events;
+      // Fetched only once a match is actually on screen.
       primeSounds();
       playCue('startgame');
       return;
     }
-
-    const { added, removed } = cardDelta(before, now);
-    // `before` here is whatever the last snapshot's table looked like — which,
-    // for the seat that just moved, `predict` has already fast-forwarded to
-    // this exact outcome. So a move this seat predicted diffs to nothing when
-    // its echo lands, and is not heard twice; a move that landed differently
-    // than predicted — or the opponent's, never predicted at all — diffs for
-    // real and is still heard, exactly once, right here.
-    if (added) playCue('addtotrack');
-    if (removed) playCue('removecard');
-
-    // Last, so the move that decided the match is still heard as a move, with
-    // the sting layered over it rather than in place of it.
-    if (justDecided && view.result!.kind === 'winner') {
-      playCue(view.result!.seat === view.seat ? 'win' : 'lose');
-    }
-    // A draw is nobody's win, so neither sting fits one. It stays silent.
-  }, [view]);
-
-  const predict = useCallback((before: MatchState, seat: Seat, move: Move) => {
-    let outcome;
-    try {
-      outcome = applyMove(before, seat, move);
-    } catch {
-      // The board only ever fires moves it already asked listLegalMoves for, so
-      // this is not expected — but a prediction is advisory, exactly like the
-      // legality highlighting it reuses the engine from, and the snapshot diff
-      // above is the backstop if it is ever wrong. Silence, not a crash.
-      return;
-    }
-
-    // A voluntary discard or disband is its own cue, and — unlike a Jack or
-    // Joker — never ambiguous: the move itself says which one this was. A
-    // discard never touches the table (cardDelta would see nothing anyway); a
-    // disband always empties exactly the caravan named in the move, so there is
-    // nothing to gain from also diffing the table for it.
-    const givenUp = move.type === 'discard' || move.type === 'disband';
-    if (givenUp) {
-      playCue('addremove');
-    } else {
-      const { added, removed } = cardDelta(tableCards(before), tableCards(outcome.state));
-      if (added) playCue('addtotrack');
-      if (removed) playCue('removecard');
-    }
-
-    const gameOver = outcome.events.find((e) => e.type === 'gameOver');
-    if (gameOver && gameOver.type === 'gameOver') {
-      // `before` is a locally hydrated view, and the opponent's hand in it is
-      // placeholders — hands are redacted, and hydrateForClient invents cards
-      // of the right *count* but not the right faces (protocol/redact.ts).
-      // `applyMove` here also runs `evaluateMatch`, which — after our move —
-      // asks whether the *opponent* has any legal move left, or has run out of
-      // cards. `tracks` and `turn-cap` depend on nothing but public
-      // information (caravan values, ply count) and stay exact. So does
-      // `empty-hand`, now that the count is honest; it is still left to the
-      // echo so that every verdict resting on the opponent's hand is reached
-      // in one place. `no-legal-move` genuinely cannot be judged here, since
-      // legality depends on the faces we do not have. Both are left for the
-      // snapshot diff below to confirm once the server's own state — which
-      // does know the opponent's hand — arrives.
-      const trustworthy =
-        gameOver.result.reason !== 'no-legal-move' && gameOver.result.reason !== 'empty-hand';
-      if (trustworthy) {
-        // Marked here, ahead of the snapshot that will confirm it, so the
-        // effect above does not replay this sting a second time when that
-        // echo lands.
-        wasDecided.current = true;
-        if (gameOver.result.kind === 'winner') {
-          playCue(gameOver.result.seat === seat ? 'win' : 'lose');
-        }
-      }
-    }
-
-    // The predicted table becomes the new baseline, so the server's echo of
-    // this same move is compared against what it is expected to be — "nothing
-    // changed" — rather than against the table as it stood before the click.
-    previous.current = tableCards(outcome.state);
-  }, []);
-
-  return predict;
-}
-
-/** Whether a table gained or lost any card between two id sets. */
-function cardDelta(before: Set<string>, after: Set<string>): { added: boolean; removed: boolean } {
-  let added = false;
-  for (const id of after) {
-    if (!before.has(id)) {
-      added = true;
-      break;
-    }
-  }
-  let removed = false;
-  for (const id of before) {
-    if (!after.has(id)) {
-      removed = true;
-      break;
-    }
-  }
-  return { added, removed };
+    if (events === arrival.current) return;
+    for (const cue of cuesFor(events, view.seat)) playCue(cue);
+    // Keyed on `events` alone: a new array arrives with every snapshot, and
+    // only with a snapshot, so a re-render for any other reason is silent.
+  }, [events]);
 }
 
 /**
- * Every card id on the table, both sides, slots and attachments. Shaped to fit
- * both the redacted view the board renders and the hydrated `MatchState` the
- * shared engine works with — the two are structurally identical here, which is
- * what lets `predict` diff a locally-applied move the exact same way the effect
- * above diffs an arrived snapshot.
+ * What one batch of events sounds like, in order: the move first, then any
+ * win or lose sting over it. At most one of each cue — a Joker clearing three
+ * cards is one `removecard`, not three.
+ *
+ * - `addtotrack`: a card landing on a caravan.
+ * - `removecard`: a card forced off one, by a Jack or a Joker.
+ * - `addremove`: a card given up on purpose — a discard, or a disband.
+ *
+ * A Jack is played and then destroys itself along with its target, so a play
+ * whose own card is destroyed in the same batch landed nowhere, and is heard
+ * only as the removal.
  */
-function tableCards(state: {
-  players: readonly { caravans: readonly { slots: readonly { card: { id: string }; attached: readonly { id: string }[] }[] }[] }[];
-}): Set<string> {
-  const ids = new Set<string>();
-  for (const player of state.players) {
-    for (const caravan of player.caravans) {
-      for (const slot of caravan.slots) {
-        ids.add(slot.card.id);
-        for (const face of slot.attached) ids.add(face.id);
-      }
+export function cuesFor(events: readonly GameEvent[], you: number): Cue[] {
+  const cues = new Set<Cue>();
+  const destroyed = new Set<string>();
+  for (const e of events) {
+    if (e.type === 'destroy' && e.cause !== 'disband') for (const id of e.cardIds) destroyed.add(id);
+  }
+
+  for (const e of events) {
+    switch (e.type) {
+      case 'play':
+        if (!destroyed.has(e.cardId)) cues.add('addtotrack');
+        break;
+      case 'discard':
+      case 'disband':
+        cues.add('addremove');
+        break;
+      case 'destroy':
+        if (e.cause !== 'disband' && e.cardIds.length > 0) cues.add('removecard');
+        break;
+      case 'gameOver':
+        // A draw is nobody's win, so neither sting fits one.
+        if (e.result.kind === 'winner') cues.add(e.result.seat === you ? 'win' : 'lose');
+        break;
     }
   }
-  return ids;
+
+  const order: Cue[] = ['addtotrack', 'removecard', 'addremove', 'win', 'lose'];
+  return order.filter((cue) => cues.has(cue));
 }

@@ -166,11 +166,9 @@ opening and for the match being won or lost. The card cues hold several takes
 each and pick between them at random, so a long game does not turn into the same
 click over and over.
 
-Your own move sounds the instant you make it — it does not wait on a round trip
-to the server, so it is not held hostage by your own connection the way it would
-be if it only fired on the server's reply. The opponent's moves still come from
-watching the board change, since there is nothing else to go on for a move you
-did not make. The speaker button in the session panel mutes all of it for good.
+Each sound plays when its move reaches the board, the same way for your moves
+and the opponent's. The speaker button in the session panel mutes all sound,
+ambience and music included.
 
 To use different sounds, replace the folders in `apps/web/src/assets/sounds/` —
 one folder per cue, any filenames, any number of takes. An empty folder is silent

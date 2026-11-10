@@ -30,7 +30,7 @@ import { useSoundCues } from './useSoundCues.js';
  * what may be played next — is always the fully visible one at the far end.
  *
  * Selecting a card asks the shared rules engine for every legal destination and
- * lights exactly those up. Same code path the server validates with, so the
+ * lights exactly those up. Same code path the table validates with, so the
  * highlighting *is* the rules — which makes it the best teaching tool for
  * Caravan's confusing placement rules.
  */
@@ -126,10 +126,9 @@ export function Board({
   const [menuOpen, setMenuOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
 
-  // Cards landing on and leaving the table, heard for both players. `predict`
-  // sounds this seat's own moves the instant they are chosen, rather than
-  // waiting for the server to echo them back — see useSoundCues.ts.
-  const predictSound = useSoundCues(view);
+  // Cards landing on and leaving the table, heard for both players as each
+  // move arrives — see useSoundCues.ts.
+  useSoundCues(view, events);
 
   const you = view.seat;
   const them: Seat = you === 0 ? 1 : 0;
@@ -168,10 +167,9 @@ export function Board({
   const fire = useCallback(
     (move: Move) => {
       setSelected(null);
-      predictSound(engine, you, move);
       onMove(move);
     },
-    [onMove, predictSound, engine, you],
+    [onMove],
   );
 
   /**
