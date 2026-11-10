@@ -3,7 +3,7 @@ import {
   NET,
   type Difficulty,
   type EndReason,
-  type ServerMessage,
+  type TableMessage,
 } from '@caravan/protocol';
 import {
   Hub,
@@ -52,7 +52,7 @@ export function peerIdFor(code: string): string {
 /**
  * Only these may come from a guest. `create` would open a second room in the
  * host's tab; nothing else a guest could send is any different from what the
- * old server accepted from a socket.
+ * table accepts from the host's own tab.
  */
 const GUEST_MESSAGES = new Set<ClientMessage['t']>([
   'join',
@@ -101,7 +101,7 @@ interface Options {
   network: PeerNetwork | null;
   storage: Storage | null;
   onStatus: (status: TableStatus) => void;
-  onMessage: (message: ServerMessage) => void;
+  onMessage: (message: TableMessage) => void;
 }
 
 /**

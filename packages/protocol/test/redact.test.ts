@@ -52,8 +52,8 @@ describe('redactFor', () => {
 });
 
 describe('hydrateForClient', () => {
-  it('reproduces the server’s legal move list exactly, from redacted state', () => {
-    // If these ever diverge, the client highlights moves the server rejects.
+  it('reproduces the table’s legal move list exactly, from redacted state', () => {
+    // If these ever diverge, the client highlights moves the table rejects.
     let state = createMatch('mirror').state;
     for (let ply = 0; ply < 60 && state.phase !== 'over'; ply++) {
       const seat = state.turn;
@@ -82,7 +82,7 @@ describe('hydrateForClient', () => {
     }
   });
 
-  it('gives the idle seat no moves, matching the server', () => {
+  it('gives the idle seat no moves, matching the table', () => {
     const state = advance(createMatch('mirror-2').state, 8);
     const idle: Seat = state.turn === 0 ? 1 : 0;
     expect(listLegalMoves(hydrateForClient(redactFor(idle, state)), idle)).toEqual([]);

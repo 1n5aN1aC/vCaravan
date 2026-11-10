@@ -1,20 +1,20 @@
-import { ClientMessage, NET, type RedactedState, type ServerMessage } from '@caravan/protocol';
+import { ClientMessage, NET, type RedactedState, type TableMessage } from '@caravan/protocol';
 import { buildDeck, buildPool, listLegalMoves } from '@caravan/rules';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Hub, type Connection } from '../src/hub.js';
 import { InMemoryMatchStore, SeatTokens } from '../src/store.js';
 
-/** A fake socket that just records what the server sent it. */
+/** A fake socket that just records what the table sent it. */
 class TestConnection implements Connection {
-  received: ServerMessage[] = [];
+  received: TableMessage[] = [];
   closed = false;
-  send(message: ServerMessage): void {
+  send(message: TableMessage): void {
     this.received.push(message);
   }
   close(): void {
     this.closed = true;
   }
-  last<T extends ServerMessage['t']>(t: T): Extract<ServerMessage, { t: T }> | undefined {
+  last<T extends TableMessage['t']>(t: T): Extract<TableMessage, { t: T }> | undefined {
     return [...this.received].reverse().find((m) => m.t === t) as never;
   }
 }

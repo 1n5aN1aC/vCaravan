@@ -61,7 +61,7 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
   // end: the table stays up for as long as a rematch is still on offer.
   const frozen = state.status === 'ended' || !!state.match?.result;
 
-  // A deck is submitted once and only once, so this reads it off the server's
+  // A deck is submitted once and only once, so this reads it off the table's
   // own bookkeeping rather than local state — a refresh mid-build resumes into
   // the right screen instead of forgetting a deck was already sent.
   const mySubmitted = seated && state.decksReady[state.seat!];
@@ -72,7 +72,7 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
 
   // A mode with no building to do sends its whole pool the moment the seat
   // exists, so the player goes straight from the landing page to the table.
-  // Gated on the server's `decksReady` like the builder is, so a refresh
+  // Gated on the table's `decksReady` like the builder is, so a refresh
   // mid-deal doesn't try to submit a deck that is already in.
   useEffect(() => {
     if (!seated || buildable || mySubmitted || showBoard) return;
@@ -197,7 +197,7 @@ export function App({ client: given }: { client?: CaravanClient } = {}) {
           result={state.match.result}
           you={state.match.seat}
           // Once the room has ended there is nothing left to play again with —
-          // the server has let the table go.
+          // the host has let the table go.
           onRematch={state.status === 'ended' ? undefined : () => client.rematch()}
           offered={state.rematch[state.match.seat]}
           opponentOffered={state.rematch[state.match.seat === 0 ? 1 : 0]}

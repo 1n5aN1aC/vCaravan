@@ -5,7 +5,7 @@ import {
   type ClientMessage,
   type Difficulty,
   type EndReason,
-  type ServerMessage,
+  type TableMessage,
 } from '@caravan/protocol';
 import {
   DEFAULT_DECK_MODE,
@@ -30,7 +30,7 @@ import {
 } from './store.js';
 
 export interface Connection {
-  send(message: ServerMessage): void;
+  send(message: TableMessage): void;
   close(): void;
 }
 
@@ -385,7 +385,7 @@ export class Hub {
   private broadcastRoom(room: Room): void {
     const occupants = this.seats.get(room.code) ?? [null, null];
     const graceStart = room.disconnectedAt.find((at) => at !== null) ?? null;
-    const message: ServerMessage = {
+    const message: TableMessage = {
       t: 'room',
       code: room.code,
       mode: room.mode,

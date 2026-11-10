@@ -34,7 +34,7 @@ export interface RedactedState {
 
 /**
  * The single choke-point by which match state reaches a client. Nothing else in
- * the server may serialize a MatchState — if a field is secret, it is dropped
+ * the table may serialize a MatchState — if a field is secret, it is dropped
  * here or it leaks.
  */
 export function redactFor(seat: Seat, state: MatchState): RedactedState {
@@ -68,7 +68,7 @@ export function redactFor(seat: Seat, state: MatchState): RedactedState {
  * round-trip. Which cards the opponent holds is genuinely unknown, so their
  * hand — like their deck and discard — becomes placeholders. None of it affects
  * the legality of a move by the receiving seat. This is advisory UI only; the
- * server re-validates everything anyway.
+ * table re-validates everything anyway.
  *
  * The placeholders are of the right *length*, and that matters: `handCount` is
  * public, and a rule that asks whether a player has run out of cards must not

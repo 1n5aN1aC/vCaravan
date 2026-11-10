@@ -32,31 +32,22 @@ easy to spot.
 
 ## What fires them
 
-Two triggers, in `src/useSoundCues.ts`. The mover's own move sounds the instant
-it is chosen — `predict` runs it through the shared rules engine and plays off
-that, so it never waits on a round trip to the server. Everything else comes
-from diffing consecutive board snapshots, the same trick that animates
-departures — this is what makes the *opponent's* moves audible, since there is
-nothing to predict from for a move nobody here has chosen yet. One `addtotrack`
-and/or one `removecard` per snapshot either way: firing once per direction
-rather than once per card is what keeps a Joker clearing three cards from
-sounding like clipping.
+`src/useSoundCues.ts`. Every board snapshot arrives with the events that made
+it, and the cues are read straight off those, the same for your moves and the
+opponent's:
 
-`removecard` is only ever a Jack or a Joker — a card taken off the table against
-its owner's will. Giving one up on purpose is `addremove` instead: discarding
-from hand, or disbanding a whole caravan. That distinction can only be drawn by
-`predict`, from the move itself, so an opponent's disband is still heard as
-`removecard`, and an opponent's discard — which never touches the table at all —
-stays inaudible. Both are true to how much the client actually knows about the
-other side's hand.
+- a card played onto a caravan is `addtotrack`;
+- a Jack or Joker taking cards off is `removecard` — a Jack lands nowhere, so
+  it is heard only as the removal;
+- a discard or a disband, given up on purpose, is `addremove`;
+- the match being won or lost is `win`/`lose`, after the move's own cue. A draw
+  is nobody's win and sounds neither.
 
-The bookends come from the snapshot diff. `startgame` fires on the first
-snapshot, which is also when the files are fetched. `win`/`lose` fire when a
-snapshot carries a result the one before it did not — so reconnecting to a
-finished match is quiet — and they fire *after* the move's own cue, so the
-deciding play is still heard as a play. A draw is nobody's win and sounds
-neither. A `predict`ed move that happens to decide the match plays its sting
-immediately too, the same way.
+One of each per move: a Joker clearing three cards is one `removecard`, not
+three, which is what keeps it from sounding like clipping. `startgame` fires on
+the first snapshot, which is also when the files are fetched, and that
+snapshot's events are not sounded — joining or reconnecting to a match in
+progress replays nothing.
 
 `src/sound.ts` owns loading, the random pick, and the mute setting (remembered in
 `localStorage` under `caravan.sound`).

@@ -78,7 +78,7 @@ export type EndReason = 'finished' | 'abandoned' | 'idle' | 'opponent-left';
 
 /**
  * Table -> seat. Not Zod-validated on the way out (the compiler already
- * guarantees the shape); the client parses defensively with `ServerMessage`.
+ * guarantees the shape); the client parses defensively with `TableMessage`.
  */
 export interface SeatedMessage {
   t: 'seated';
@@ -131,7 +131,7 @@ export interface PongMessage {
   t: 'pong';
 }
 
-export type ServerMessage =
+export type TableMessage =
   | SeatedMessage
   | RoomMessage
   | StateMessage

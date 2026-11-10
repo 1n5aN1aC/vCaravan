@@ -5,7 +5,7 @@
  * `--difficulty=extreme` — so the only variable between games in a pairing is
  * which deck each side drafted.
  *
- * `pnpm --filter @caravan/server tournament -- --seeds=6`
+ * `pnpm --filter @caravan/host tournament -- --seeds=6`
  *
  * Each pairing plays `seeds` seeds, and each seed twice with the two decks
  * swapped between seats — canceling any seat-order asymmetry rather than

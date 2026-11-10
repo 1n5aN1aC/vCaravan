@@ -84,7 +84,7 @@ function byRankThenSuit(a: Card, b: Card): number {
  * this screen never appears there.
  *
  * The pool comes from the same `buildPool` the engine resolves deals from, so
- * the ids submitted are exactly the ids the server will keep — there is no
+ * the ids submitted are exactly the ids the table will keep — there is no
  * mapping layer to drift.
  */
 export function DeckBuilder({

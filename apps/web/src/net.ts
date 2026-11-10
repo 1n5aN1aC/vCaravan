@@ -3,7 +3,7 @@ import {
   type ClientMessage,
   type Difficulty,
   type RedactedState,
-  type ServerMessage,
+  type TableMessage,
 } from '@caravan/protocol';
 import { DEFAULT_DECK_MODE, type DeckModeId, type GameEvent, type Move } from '@caravan/rules';
 import { PeerError, peerJsNetwork, type Channel, type PeerNetwork } from './peer.js';
@@ -247,7 +247,7 @@ export class CaravanClient {
       onStatus: (status: TableStatus) => {
         if (epoch === this.epoch) this.patch({ connectivity: status });
       },
-      onMessage: (message: ServerMessage) => {
+      onMessage: (message: TableMessage) => {
         if (epoch === this.epoch) this.receive(message);
       },
     };
@@ -281,7 +281,7 @@ export class CaravanClient {
     this.heard = Date.now();
     channel.onmessage = (message) => {
       this.heard = Date.now();
-      this.receive(message as ServerMessage);
+      this.receive(message as TableMessage);
     };
     channel.onclose = () => {
       if (this.link === null) return;
@@ -348,7 +348,7 @@ export class CaravanClient {
     this.link?.send(message);
   }
 
-  private receive(message: ServerMessage): void {
+  private receive(message: TableMessage): void {
     switch (message.t) {
       case 'seated':
         this.claiming = null;

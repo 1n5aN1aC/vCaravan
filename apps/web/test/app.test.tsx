@@ -1,4 +1,4 @@
-import { redactEvents, redactFor, type ServerMessage } from '@caravan/protocol';
+import { redactEvents, redactFor, type TableMessage } from '@caravan/protocol';
 import {
   applyMove,
   createMatch,
@@ -30,7 +30,7 @@ class FakeHost {
     });
   }
 
-  deliver(message: ServerMessage): void {
+  deliver(message: TableMessage): void {
     this.channel!.send(message);
   }
 }
@@ -209,7 +209,7 @@ describe('why a table ended', () => {
   async function ended(reason: string): Promise<void> {
     const { host } = await joined();
     act(() => host.deliver({ t: 'seated', code: CODE, seat: 1, token: `${CODE}.1.secret` }));
-    act(() => host.deliver({ t: 'ended', reason } as ServerMessage));
+    act(() => host.deliver({ t: 'ended', reason } as TableMessage));
   }
 
   it('tells a guest the host left, rather than showing the code', async () => {
@@ -283,7 +283,7 @@ describe('while a table is opening', () => {
 
 /**
  * Which screen a seat lands on is the table's mode talking, and the mode is
- * only ever learned from the server — a seat that joined by code never saw the
+ * only ever learned from the table — a seat that joined by code never saw the
  * options screen at all.
  */
 describe('deck mode after seating', () => {
@@ -300,7 +300,7 @@ describe('deck mode after seating', () => {
         decksReady: [false, false],
         rematch: [false, false],
         reconnectDeadline: null,
-      } as ServerMessage),
+      } as TableMessage),
     );
     return socket;
   }
@@ -340,7 +340,7 @@ describe('deck mode after seating', () => {
         decksReady: [true, false],
         rematch: [false, false],
         reconnectDeadline: null,
-      } as ServerMessage),
+      } as TableMessage),
     );
     const after = socket.sent.filter((m) => (m as { t: string }).t === 'deck').length;
     expect(after).toBe(before);
@@ -353,7 +353,7 @@ describe('deck mode after seating', () => {
  * then watch the frames a rematch is made of.
  */
 describe('rematch', () => {
-  function room(over: Partial<Extract<ServerMessage, { t: 'room' }>> = {}) {
+  function room(over: Partial<Extract<TableMessage, { t: 'room' }>> = {}) {
     return {
       t: 'room',
       code: CODE,
@@ -364,7 +364,7 @@ describe('rematch', () => {
       rematch: [false, false],
       reconnectDeadline: null,
       ...over,
-    } as ServerMessage;
+    } as TableMessage;
   }
 
   /** Seat 0's view of a match played out to a result. */

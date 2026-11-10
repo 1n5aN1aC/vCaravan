@@ -2,8 +2,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 /**
  * A throw during render or commit unmounts the whole tree, which is why a small
- * UI bug showed up as a blank page mid-match. The state itself is safe on the
- * server, so recovery is always just a reload.
+ * UI bug showed up as a blank page mid-match. The state itself is safe with the
+ * table, so recovery is always just a reload.
  */
 export class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<
         <h1>Something broke in the UI</h1>
         <p className="error">{this.state.error.message}</p>
         <p className="dim">
-          Your seat is held on the server — reloading rejoins the match where it left off.
+          Your seat is held at the table — reloading rejoins the match where it left off.
         </p>
         <button onClick={() => location.reload()}>Reload</button>
       </main>
